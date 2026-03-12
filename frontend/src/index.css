@@ -1,0 +1,103 @@
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+/*
+  color variables for the whole app
+  everyone uses these — change here, changes everywhere
+  warm and desaturated on purpose — not neon/electric
+*/
+:root {
+  --bg-base:    #0e0c14;
+  --bg-surface: #161420;
+  --bg-raised:  #1e1b2e;
+  --bg-hover:   #252235;
+
+  --warm:   #d4845a;
+  --cool:   #5b82c4;
+  --sage:   #6ba583;
+  --amber:  #c9943a;
+  --clay:   #b85c5c;
+  --violet: #7c6aad;
+
+  --text-primary: #e8e4dc;
+  --text-muted:   #7a7590;
+  --text-faint:   #44404f;
+
+  --border-soft:   rgba(255,255,255,0.07);
+  --border-medium: rgba(255,255,255,0.12);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'IBM Plex Sans', sans-serif;
+  min-height: 100vh;
+}
+
+/* every page fades in smoothly */
+.page-enter {
+  animation: fadeUp 0.4s ease forwards;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* thin scrollbar — matches dark theme */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.08);
+  border-radius: 99px;
+}
+
+/* warm glow on any focused input */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: rgba(212,132,90,0.5) !important;
+  box-shadow: 0 0 0 3px rgba(212,132,90,0.07);
+}
+
+/* small popup notification bottom-right */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--bg-raised);
+  border: 1px solid rgba(107,165,131,0.25);
+  color: var(--text-primary);
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  z-index: 9999;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* headings get the serif font */
+h1, h2, h3 {
+  font-family: 'Instrument Serif', serif;
+  font-weight: 400;
+  color: var(--text-primary);
+}
+
+.text-muted  { color: var(--text-muted);  }
+.text-faint  { color: var(--text-faint);  }
+.text-warm   { color: var(--warm);   }
+.text-cool   { color: var(--cool);   }
+.text-sage   { color: var(--sage);   }
+.text-amber  { color: var(--amber);  }
+.text-clay   { color: var(--clay);   }
+.text-violet { color: var(--violet); }
