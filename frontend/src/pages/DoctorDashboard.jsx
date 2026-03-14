@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, auth } from '../firebase'
-import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore'
+import { collection, onSnapshot, doc, updateDoc, addDoc, serverTimestamp, deleteDoc } from 'firebase/firestore'
 import { signOut } from 'firebase/auth'
-import { ALERTS, TRANSFER_REQUESTS, APPOINTMENT_REQUESTS } from '../data/mockData'
+import { ALERTS } from '../data/mockData' // Removed mock TRANSFER_REQUESTS
 import ResourceBar from '../components/ResourceBar'
 import AlertItem from '../components/AlertItem'
 import UpdateModal from '../components/UpdateModal'
@@ -16,10 +16,15 @@ export default function DoctorDashboard() {
   const [loading, setLoading] = useState(true)
   const [alerts, setAlerts] = useState(ALERTS)
   const [modal, setModal] = useState(null)
-  const [transfers, setTransfers] = useState(TRANSFER_REQUESTS)
+  
+  // 🔥 NEW: Real-time Transfers State
+  const [transfers, setTransfers] = useState([])
+  const [transferModal, setTransferModal] = useState(false)
+  const [transferForm, setTransferForm] = useState({ toHospitalId: '', resource: 'Blood O+', qty: 1, urgent: false })
+  
   const [appointments, setAppointments] = useState([])
 
-  // real-time listener — any change in Firestore instantly updates UI
+  // 1. Listen for Hospitals
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'hospitals'), snapshot => {
       const data = snapshot.docs
@@ -28,27 +33,36 @@ export default function DoctorDashboard() {
       setHospitals(data)
       setLoading(false)
     })
-    return () => unsub() // cleanup on unmount
+    return () => unsub()
   }, [])
 
   const hospital = hospitals[activeHospital]
   
-  // Real-time listener for Appointments
+  // 2. Real-time listener for Appointments
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'appointments'), snapshot => {
-      const data = snapshot.docs.map(doc => ({ 
-        ...doc.data(), 
-        firestoreId: doc.id 
-      }));
-      
+      const data = snapshot.docs.map(doc => ({ ...doc.data(), firestoreId: doc.id }));
       if (hospital) {
         const filtered = data.filter(app => app.hospitalId === hospital.firestoreId || app.hospitalId === hospital.id);
-        // Sort newest requests first
         filtered.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
         setAppointments(filtered);
       }
     });
+    return () => unsub();
+  }, [hospital]);
 
+  // 🔥 3. NEW: Real-time listener for Inter-Hospital Transfers
+  useEffect(() => {
+    if (!hospital) return;
+    const unsub = onSnapshot(collection(db, 'transfers'), snapshot => {
+      const allTransfers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const targetId = hospital.firestoreId || hospital.id;
+      
+      // Filter: Show if this hospital sent it OR is receiving it
+      const myTransfers = allTransfers.filter(t => t.fromId === targetId || t.toId === targetId);
+      myTransfers.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+      setTransfers(myTransfers);
+    });
     return () => unsub();
   }, [hospital]);
 
@@ -56,7 +70,7 @@ export default function DoctorDashboard() {
     { id:'overview',     label:'Overview',   icon:'📊' },
     { id:'resources',    label:'Resources',  icon:'🏥' },
     { id:'transfers',    label:'Transfers',  icon:'🔄' },
-    { id:'appointments', label:'Appointments',   icon:'📋' },
+    { id:'appointments', label:'Appointments', icon:'📋' },
     { id:'bloodbank',    label:'Blood Bank', icon:'🩸' },
   ]
 
@@ -65,48 +79,65 @@ export default function DoctorDashboard() {
   const totalAmb      = hospitals.reduce((s, h) => s + (h.ambulances?.available || 0), 0)
   const criticalCount = alerts.filter(a => a.level === 'critical').length
 
-  // saves update to Firestore
   const handleSave = async (type, itemLabel, newValue) => {
     if (!hospital) return
     const ref = doc(db, 'hospitals', hospital.firestoreId)
     try {
-      if (itemLabel === 'ICU Beds')
-        await updateDoc(ref, { 'icuBeds.available': newValue })
-      else if (itemLabel === 'General Beds')
-        await updateDoc(ref, { 'generalBeds.available': newValue })
-      else if (itemLabel === 'Ambulances')
-        await updateDoc(ref, { 'ambulances.available': newValue })
-      else if (type === 'doctors')
-        await updateDoc(ref, { [`doctors.${itemLabel}.available`]: newValue })
-      else if (type === 'equipment')
-        await updateDoc(ref, { [`equipment.${itemLabel}.available`]: newValue })
-    } catch (err) {
-      console.error('Update failed:', err)
-    }
+      if (itemLabel === 'ICU Beds') await updateDoc(ref, { 'icuBeds.available': newValue })
+      else if (itemLabel === 'General Beds') await updateDoc(ref, { 'generalBeds.available': newValue })
+      else if (itemLabel === 'Ambulances') await updateDoc(ref, { 'ambulances.available': newValue })
+      else if (type === 'doctors') await updateDoc(ref, { [`doctors.${itemLabel}.available`]: newValue })
+      else if (type === 'equipment') await updateDoc(ref, { [`equipment.${itemLabel}.available`]: newValue })
+    } catch (err) { console.error('Update failed:', err) }
     setModal(null)
   }
 
-  // NEW: Update Appointment Status in Firestore
   const handleUpdateAppointment = async (appId, newStatus) => {
-    try {
-      const ref = doc(db, 'appointments', appId);
-      await updateDoc(ref, { status: newStatus });
-    } catch (err) {
-      console.error("Failed to update status:", err);
-    }
+    try { await updateDoc(doc(db, 'appointments', appId), { status: newStatus }); } 
+    catch (err) { console.error("Failed to update status:", err); }
   };
 
-  // NEW: Confirm/Reschedule Appointment in Firestore
   const handleApproveAndSchedule = async (appId) => {
     const selectedTime = document.getElementById(`time-${appId}`).value;
+    try { await updateDoc(doc(db, 'appointments', appId), { status: 'confirmed', timePreference: selectedTime }); } 
+    catch (err) { console.error("Failed to schedule:", err); }
+  };
+
+  // 🔥 NEW: Create a Transfer Request
+  const handleCreateTransfer = async () => {
+    if (!transferForm.toHospitalId) return alert("Please select a destination hospital");
     try {
-      const ref = doc(db, 'appointments', appId);
-      await updateDoc(ref, { 
-        status: 'confirmed',
-        timePreference: selectedTime 
+      const toHospital = hospitals.find(h => (h.firestoreId || h.id).toString() === transferForm.toHospitalId.toString());
+      await addDoc(collection(db, 'transfers'), {
+        fromId: hospital.firestoreId || hospital.id,
+        fromName: hospital.name,
+        toId: toHospital.firestoreId || toHospital.id,
+        toName: toHospital.name,
+        resource: transferForm.resource,
+        qty: Number(transferForm.qty),
+        urgent: transferForm.urgent,
+        status: 'pending',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        createdAt: serverTimestamp()
       });
-    } catch (err) {
-      console.error("Failed to schedule:", err);
+      setTransferModal(false);
+      setTransferForm({ toHospitalId: '', resource: 'Blood O+', qty: 1, urgent: false });
+    } catch (err) { console.error("Transfer error:", err); }
+  };
+
+  // 🔥 NEW: Approve or Reject a Transfer
+  const handleUpdateTransfer = async (transferId, newStatus) => {
+    try { await updateDoc(doc(db, 'transfers', transferId), { status: newStatus }); } 
+    catch (err) { console.error("Update transfer error:", err); }
+  };
+  // 🔥 NEW: Delete/Cancel a Transfer
+  const handleDeleteTransfer = async (transferId) => {
+    if (window.confirm("Are you sure you want to delete this transfer request?")) {
+      try { 
+        await deleteDoc(doc(db, 'transfers', transferId)); 
+      } catch (err) { 
+        console.error("Delete transfer error:", err); 
+      }
     }
   };
 
@@ -142,15 +173,20 @@ export default function DoctorDashboard() {
         </div>
 
         <div style={{ padding:'12px 12px', flex:1 }}>
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ width:'100%', padding:'9px 10px', background: activeTab === tab.id ? 'rgba(212,132,90,0.08)' : 'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
-              <span style={{ fontSize:15 }}>{tab.icon}</span>
-              <span style={{ fontSize:13, color: activeTab === tab.id ? 'var(--warm)' : 'var(--text-muted)', fontWeight: activeTab === tab.id ? 600 : 400 }}>{tab.label}</span>
-              {tab.id === 'transfers' && transfers.filter(t => t.status === 'incoming').length > 0 && (
-                <span style={{ marginLeft:'auto', background:'var(--clay)', color:'#fff', fontSize:10, padding:'1px 6px', borderRadius:99 }}>{transfers.filter(t => t.status === 'incoming').length}</span>
-              )}
-            </button>
-          ))}
+          {tabs.map(tab => {
+            // 🔥 REAL DYNAMIC BADGE: Counts pending incoming transfers for this hospital
+            const pendingIncoming = transfers.filter(t => t.toId === (hospital.firestoreId || hospital.id) && t.status === 'pending').length;
+            
+            return (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ width:'100%', padding:'9px 10px', background: activeTab === tab.id ? 'rgba(212,132,90,0.08)' : 'transparent', border:'none', borderRadius:8, cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
+                <span style={{ fontSize:15 }}>{tab.icon}</span>
+                <span style={{ fontSize:13, color: activeTab === tab.id ? 'var(--warm)' : 'var(--text-muted)', fontWeight: activeTab === tab.id ? 600 : 400 }}>{tab.label}</span>
+                {tab.id === 'transfers' && pendingIncoming > 0 && (
+                  <span style={{ marginLeft:'auto', background:'var(--clay)', color:'#fff', fontSize:10, padding:'1px 6px', borderRadius:99 }}>{pendingIncoming}</span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
         <div style={{ padding:'16px 12px', borderTop:'1px solid var(--border-soft)' }}>
@@ -204,26 +240,23 @@ export default function DoctorDashboard() {
                 ))}
               </div>
 
+              {/* OVERVIEW TRANSFERS (Mini Version) */}
               <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border-soft)', borderRadius:14, padding:20 }}>
-                <div style={{ fontSize:14, fontWeight:600, marginBottom:16 }}>Transfer Requests</div>
-                {transfers.map(t => (
-                  <div key={t.id} style={{ padding:'12px 14px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--border-soft)', borderRadius:10, marginBottom:8 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                      <span style={{ fontSize:13, fontWeight:600 }}>{t.resource} × {t.qty}</span>
-                      {t.urgent && <span style={{ fontSize:9, color:'var(--clay)', border:'1px solid rgba(184,92,92,0.3)', padding:'2px 7px', borderRadius:99, textTransform:'uppercase' }}>Urgent</span>}
-                    </div>
-                    <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10 }}>
-                      {t.status === 'incoming' ? `From: ${t.from}` : `To: ${t.to}`} · {t.time}
-                    </div>
-                    {t.status === 'incoming' && (
-                      <div style={{ display:'flex', gap:8 }}>
-                        <button onClick={() => setTransfers(prev => prev.map(x => x.id === t.id ? { ...x, status:'approved' } : x))} style={{ flex:1, padding:'7px', background:'rgba(107,165,131,0.1)', border:'1px solid rgba(107,165,131,0.3)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:12 }}>✓ Approve</button>
-                        <button onClick={() => setTransfers(prev => prev.filter(x => x.id !== t.id))} style={{ flex:1, padding:'7px', background:'rgba(184,92,92,0.08)', border:'1px solid rgba(184,92,92,0.2)', borderRadius:8, color:'var(--clay)', cursor:'pointer', fontSize:12 }}>✗ Reject</button>
+                <div style={{ fontSize:14, fontWeight:600, marginBottom:16 }}>Recent Transfers</div>
+                {transfers.slice(0, 4).map(t => {
+                  const isIncoming = t.toId === (hospital.firestoreId || hospital.id);
+                  return (
+                    <div key={t.id} style={{ padding:'12px 14px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--border-soft)', borderRadius:10, marginBottom:8 }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                        <span style={{ fontSize:13, fontWeight:600 }}>{t.resource} <span style={{color:'var(--cool)'}}>× {t.qty}</span></span>
+                        {t.urgent && <span style={{ fontSize:9, color:'var(--clay)', border:'1px solid rgba(184,92,92,0.3)', padding:'2px 7px', borderRadius:99, textTransform:'uppercase' }}>Urgent</span>}
                       </div>
-                    )}
-                    {t.status === 'approved' && <div style={{ fontSize:12, color:'var(--sage)' }}>✓ Approved</div>}
-                  </div>
-                ))}
+                      <div style={{ fontSize:12, color:'var(--text-muted)'}}>
+                        {isIncoming ? `📥 From: ${t.fromName}` : `📤 To: ${t.toName}`}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           </div>
@@ -261,34 +294,56 @@ export default function DoctorDashboard() {
           </div>
         )}
 
-        {/* TRANSFERS */}
+        {/* 🔥 REAL-TIME TRANSFERS TAB */}
         {activeTab === 'transfers' && (
           <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border-soft)', borderRadius:14, padding:24 }}>
-            <div style={{ fontSize:16, fontWeight:600, marginBottom:20 }}>All Transfer Requests</div>
-            {transfers.map(t => (
-              <div key={t.id} style={{ padding:'14px 16px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--border-soft)', borderRadius:10, marginBottom:10 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
-                  <span style={{ fontSize:14, fontWeight:600 }}>{t.resource} × {t.qty}</span>
-                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                    {t.urgent && <span style={{ fontSize:9, color:'var(--clay)', border:'1px solid rgba(184,92,92,0.3)', padding:'2px 7px', borderRadius:99, textTransform:'uppercase' }}>Urgent</span>}
-                    <span style={{ fontSize:11, color: t.status === 'incoming' ? 'var(--amber)' : t.status === 'approved' ? 'var(--sage)' : 'var(--text-muted)', padding:'3px 10px', background:'rgba(255,255,255,0.04)', borderRadius:99 }}>{t.status}</span>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:20 }}>
+              <div style={{ fontSize:16, fontWeight:600 }}>B2B Resource Transfers</div>
+              <button onClick={() => setTransferModal(true)} style={{ padding:'8px 16px', background:'var(--cool)', color:'white', border:'none', borderRadius:8, fontWeight:600, cursor:'pointer', fontSize:13 }}>
+                + Request Resource
+              </button>
+            </div>
+
+            {transfers.length === 0 && <div style={{ fontSize:13, color:'var(--text-faint)', textAlign:'center', padding:20 }}>No active transfer requests.</div>}
+            
+            {transfers.map(t => {
+              const isIncoming = t.toId === (hospital.firestoreId || hospital.id);
+              
+              return (
+                <div key={t.id} style={{ padding:'14px 16px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--border-soft)', borderRadius:10, marginBottom:10 }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                    <span style={{ fontSize:14, fontWeight:600 }}>{t.resource} <span style={{color:'var(--cool)'}}>× {t.qty}</span></span>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      {t.urgent && <span style={{ fontSize:9, color:'var(--clay)', border:'1px solid rgba(184,92,92,0.3)', padding:'2px 7px', borderRadius:99, textTransform:'uppercase' }}>Urgent</span>}
+                      <span style={{ fontSize:11, color: t.status === 'pending' ? 'var(--amber)' : t.status === 'approved' ? 'var(--sage)' : 'var(--text-muted)', padding:'3px 10px', background:'rgba(255,255,255,0.04)', borderRadius:99, textTransform:'uppercase' }}>{t.status}</span>
+                      
+                      {/* 🔥 NEW: Delete Button */}
+                      <button 
+                        onClick={() => handleDeleteTransfer(t.id)} 
+                        style={{ background:'transparent', border:'none', color:'var(--text-faint)', cursor:'pointer', padding:'2px 4px', fontSize:14, marginLeft:4, transition: '0.2s' }} 
+                        title="Delete Request"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:10 }}>
-                  {t.status === 'incoming' ? `From: ${t.from}` : `To: ${t.to}`} · {t.time}
-                </div>
-                {t.status === 'incoming' && (
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={() => setTransfers(prev => prev.map(x => x.id === t.id ? { ...x, status:'approved' } : x))} style={{ padding:'8px 20px', background:'rgba(107,165,131,0.1)', border:'1px solid rgba(107,165,131,0.3)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:13 }}>✓ Approve</button>
-                    <button onClick={() => setTransfers(prev => prev.filter(x => x.id !== t.id))} style={{ padding:'8px 20px', background:'rgba(184,92,92,0.08)', border:'1px solid rgba(184,92,92,0.2)', borderRadius:8, color:'var(--clay)', cursor:'pointer', fontSize:13 }}>✗ Reject</button>
+                  <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:10 }}>
+                    {isIncoming ? `📥 From: ${t.fromName}` : `📤 To: ${t.toName}`} · {t.time || 'Just now'}
                   </div>
-                )}
-              </div>
-            ))}
+                  
+                  {isIncoming && t.status === 'pending' && (
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button onClick={() => handleUpdateTransfer(t.id, 'approved')} style={{ padding:'8px 20px', background:'rgba(107,165,131,0.1)', border:'1px solid rgba(107,165,131,0.3)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:13 }}>✓ Approve</button>
+                      <button onClick={() => handleUpdateTransfer(t.id, 'rejected')} style={{ padding:'8px 20px', background:'rgba(184,92,92,0.08)', border:'1px solid rgba(184,92,92,0.2)', borderRadius:8, color:'var(--clay)', cursor:'pointer', fontSize:13 }}>✗ Reject</button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
 
-        {/* UPDATED APPOINTMENTS TAB (Your UI + Real Data) */}
+        {/* APPOINTMENTS */}
         {activeTab === 'appointments' && (
           <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border-soft)', borderRadius:14, padding:24 }}>
             <div style={{ fontSize:16, fontWeight:600, marginBottom:20 }}>Patient Appointment Requests</div>
@@ -297,14 +352,11 @@ export default function DoctorDashboard() {
             
             {appointments.map(a => (
               <div key={a.firestoreId || a.id} style={{ padding:'14px 16px', background:'rgba(255,255,255,0.02)', border:'1px solid var(--border-soft)', borderRadius:10, marginBottom:10 }}>
-                
-                {/* Header: Name & Time */}
                 <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
                   <span style={{ fontSize:14, fontWeight:600 }}>{a.patientName}</span>
                   <span style={{ fontSize:11, color:'var(--text-faint)' }}>{a.timePreference}</span>
                 </div>
                 
-                {/* Body: Contact, Aadhaar, Doctor & Fee */}
                 <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:4 }}>
                   📞 {a.phone} &nbsp; | &nbsp; 💳 Aadhaar: {a.aadhaar || 'N/A'}
                 </div>
@@ -312,40 +364,24 @@ export default function DoctorDashboard() {
                   👨‍⚕️ Requested: {a.doctorName} &nbsp; | &nbsp; <span style={{color: 'var(--sage)'}}>💰 Fee: ₹{a.fee || 500}</span>
                 </div>
                 
-                {/* Symptoms */}
-                <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12 }}>
-                  💬 {a.symptoms}
-                </div>
+                <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12 }}>💬 {a.symptoms}</div>
                 
-                {/* Action Buttons (Wired to Firebase) */}
                 {a.status === 'pending' && (
                   <div style={{ display:'flex', gap:8, alignItems: 'center' }}>
-                    <select 
-                      id={`time-${a.firestoreId}`} 
-                      defaultValue={a.timePreference}
-                      style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--bg-base)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)', fontSize: 12 }}
-                    >
+                    <select id={`time-${a.firestoreId}`} defaultValue={a.timePreference} style={{ padding: '7px 10px', borderRadius: 8, background: 'var(--bg-base)', border: '1px solid var(--border-soft)', color: 'var(--text-primary)', fontSize: 12 }}>
                       <option value="Morning (9 AM - 12 PM)">Morning (9 AM - 12 PM)</option>
                       <option value="Afternoon (12 PM - 4 PM)">Afternoon (12 PM - 4 PM)</option>
                       <option value="Evening (4 PM - 8 PM)">Evening (4 PM - 8 PM)</option>
                     </select>
-                    
-                    <button onClick={() => handleApproveAndSchedule(a.firestoreId)} style={{ padding:'8px 20px', background:'rgba(107,165,131,0.1)', border:'1px solid rgba(107,165,131,0.3)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:13 }}>
-                      ✓ Confirm Time
-                    </button>
-                    
-                    <button onClick={() => handleUpdateAppointment(a.firestoreId, 'rejected')} style={{ padding:'8px 20px', background:'rgba(184,92,92,0.08)', border:'1px solid rgba(184,92,92,0.2)', borderRadius:8, color:'var(--clay)', cursor:'pointer', fontSize:13 }}>
-                      ✗ Reject
-                    </button>
+                    <button onClick={() => handleApproveAndSchedule(a.firestoreId)} style={{ padding:'8px 20px', background:'rgba(107,165,131,0.1)', border:'1px solid rgba(107,165,131,0.3)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:13 }}>✓ Confirm</button>
+                    <button onClick={() => handleUpdateAppointment(a.firestoreId, 'rejected')} style={{ padding:'8px 20px', background:'rgba(184,92,92,0.08)', border:'1px solid rgba(184,92,92,0.2)', borderRadius:8, color:'var(--clay)', cursor:'pointer', fontSize:13 }}>✗ Reject</button>
                   </div>
                 )}
                 
                 {a.status === 'confirmed' && (
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ fontSize:13, color: 'var(--sage)' }}>● Confirmed for {a.timePreference}</div>
-                    <button onClick={() => handleUpdateAppointment(a.firestoreId, 'completed')} style={{ padding:'6px 16px', background:'transparent', border:'1px solid var(--sage)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:12 }}>
-                      Mark Completed
-                    </button>
+                    <button onClick={() => handleUpdateAppointment(a.firestoreId, 'completed')} style={{ padding:'6px 16px', background:'transparent', border:'1px solid var(--sage)', borderRadius:8, color:'var(--sage)', cursor:'pointer', fontSize:12 }}>Mark Completed</button>
                   </div>
                 )}
                 
@@ -382,6 +418,51 @@ export default function DoctorDashboard() {
           onClose={() => setModal(null)}
           onSave={(val) => handleSave(modal.type, modal.label, val)}
         />
+      )}
+
+      {/* 🔥 NEW: Beautiful Glassmorphism Transfer Modal */}
+      {transferModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: 'var(--bg-raised)', padding: 32, borderRadius: 16, width: 380, border: '1px solid var(--border-soft)' }}>
+            <h3 style={{ marginBottom: 16, fontSize: 20 }}>Request Resource</h3>
+            <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 24 }}>Ask another hospital in the network for supplies or beds.</p>
+            
+            <label style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase' }}>Destination Hospital</label>
+            <select value={transferForm.toHospitalId} onChange={e => setTransferForm(p => ({ ...p, toHospitalId: e.target.value }))} style={{ width: '100%', padding: '10px 12px', marginBottom: 16, marginTop: 6, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }}>
+              <option value="">-- Choose Hospital --</option>
+              {hospitals.filter(h => (h.firestoreId || h.id) !== (hospital.firestoreId || hospital.id)).map(h => (
+                <option key={h.firestoreId || h.id} value={h.firestoreId || h.id}>{h.name} ({h.location})</option>
+              ))}
+            </select>
+
+            <label style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase' }}>Resource Needed</label>
+            <select value={transferForm.resource} onChange={e => setTransferForm(p => ({ ...p, resource: e.target.value }))} style={{ width: '100%', padding: '10px 12px', marginBottom: 16, marginTop: 6, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }}>
+              <option value="Blood (O+)">Blood (O+)</option>
+              <option value="Blood (A-)">Blood (A-)</option>
+              <option value="ICU Bed Transfer">ICU Bed Transfer</option>
+              <option value="Ventilator">Ventilator</option>
+              <option value="Ambulance Dispatch">Ambulance Dispatch</option>
+            </select>
+
+            <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase' }}>Quantity</label>
+                <input type="number" min="1" value={transferForm.qty} onChange={e => setTransferForm(p => ({ ...p, qty: e.target.value }))} style={{ width: '100%', padding: '10px 12px', marginTop: 6, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
+              </div>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', padding: '10px', background: transferForm.urgent ? 'rgba(184,92,92,0.1)' : 'var(--bg-base)', border: transferForm.urgent ? '1px solid rgba(184,92,92,0.3)' : '1px solid var(--border-soft)', borderRadius: 8, width: '100%', transition: 'all 0.2s' }}>
+                  <input type="checkbox" checked={transferForm.urgent} onChange={e => setTransferForm(p => ({ ...p, urgent: e.target.checked }))} style={{ cursor: 'pointer' }} />
+                  <span style={{ fontSize: 13, color: transferForm.urgent ? 'var(--clay)' : 'var(--text-muted)' }}>Urgent</span>
+                </label>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setTransferModal(false)} style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid var(--border-soft)', color: 'white', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}>Cancel</button>
+              <button onClick={handleCreateTransfer} style={{ flex: 1, padding: 10, background: 'var(--cool)', border: 'none', color: 'white', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13 }}>Send Request</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
