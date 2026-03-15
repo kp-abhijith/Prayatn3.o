@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
-import { DONORS } from '../data/mockData'
 import { db, auth } from '../firebase'
 import { useNavigate } from 'react-router-dom';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+
 export default function PatientPortal() {
   const navigate = useNavigate();
+  const chatEndRef = useRef(null);
 
   // 1. AUTH PROTECTION
   useEffect(() => {
@@ -21,26 +22,20 @@ export default function PatientPortal() {
   // 2. STATE MANAGEMENT
   const [hospitals, setHospitals] = useState([])
   const [activeTab, setActiveTab] = useState('hospitals')
-  const [location, setLocation] = useState('')
-  const [locationSet, setLocationSet] = useState(false)
+  const [location, setLocation] = useState('Indore') 
+  const [locationSet, setLocationSet] = useState(true) 
+  const [selectedHospital, setSelectedHospital] = useState(null)
   const [chatMessages, setChatMessages] = useState([
     { role: 'bot', text: "Hi! I'm MediSync AI 👋 Describe your symptoms and I'll suggest which specialist and hospital to visit." }
   ])
   const [chatInput, setChatInput] = useState('')
-  const [bloodFilter, setBloodFilter] = useState('')
-  const [cityFilter, setCityFilter] = useState('')
   const [appointmentModal, setAppointmentModal] = useState(null)
   const [appointmentForm, setAppointmentForm] = useState({ 
-    name: '', 
-    phone: '', 
-    aadhaar: '',      
-    time: 'Morning (9 AM - 12 PM)', 
-    symptoms: '', 
-    selectedDoctor: '' 
+    name: '', phone: '', aadhaar: '', time: 'Morning (9 AM - 12 PM)', symptoms: '', selectedDoctor: '' 
   });
   const [appointmentSent, setAppointmentSent] = useState(false)
 
-  // 3. REAL-TIME HOSPITAL DATA
+  // 3. REAL-TIME HOSPITAL DATA (Main List)
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'hospitals'), snapshot => {
       const data = snapshot.docs
@@ -51,33 +46,30 @@ export default function PatientPortal() {
     return () => unsub()
   }, [])
 
+  // 🟢 3.5 THE REAL-TIME FIX FOR THE MODAL 🟢
+  // This forces the open modal to update instantly when the doctor changes a number
+  useEffect(() => {
+    if (selectedHospital) {
+      const freshData = hospitals.find(h => h.firestoreId === selectedHospital.firestoreId);
+      if (freshData) {
+        setSelectedHospital(freshData);
+      }
+    }
+  }, [hospitals]);
+
   const tabs = [
     { id: 'hospitals', label: 'Hospitals', icon: '🏥' },
     { id: 'chatbot', label: 'AI Assistant', icon: '🤖' },
     { id: 'blood', label: 'Blood Finder', icon: '🩸' },
   ]
 
-  // 4. DISTANCE LOGIC
+  // 4. DISTANCE LOGIC 
   const getMockDistance = (hospitalLocation, userLocation) => {
+    if (!hospitalLocation) return 5;
     const loc = userLocation.toLowerCase()
     const hLoc = hospitalLocation.toLowerCase()
-    if (hLoc.includes(loc) || loc.includes(hLoc)) return 2
-    const distanceMap = {
-      'new delhi': { 'gurugram': 32, 'noida': 18 },
-      'gurugram': { 'new delhi': 32, 'noida': 48 },
-      'noida': { 'new delhi': 18, 'gurugram': 48 },
-      'delhi': { 'gurugram': 32, 'noida': 18 },
-      'south delhi': { 'gurugram': 18, 'noida': 28 },
-      'east delhi': { 'noida': 12, 'gurugram': 40 },
-    }
-    for (const [key, dists] of Object.entries(distanceMap)) {
-      if (loc.includes(key) || key.includes(loc)) {
-        for (const [hKey, dist] of Object.entries(dists)) {
-          if (hLoc.includes(hKey)) return dist
-        }
-      }
-    }
-    return Math.floor(Math.random() * 25) + 10
+    if (hLoc.includes(loc) || loc.includes(hLoc)) return 1.5
+    return Math.floor(Math.random() * 8) + 2 
   }
 
   const hospitalsWithDistance = hospitals.map(h => ({
@@ -86,9 +78,8 @@ export default function PatientPortal() {
   })).sort((a, b) => a.distance - b.distance)
 
   // 5. STABLE GEMINI AI CHAT LOGIC
-const handleChat = async () => {
+  const handleChat = async () => {
     if (!chatInput.trim()) return;
-    
     const userMsg = chatInput;
     setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setChatInput('');
@@ -97,15 +88,6 @@ const handleChat = async () => {
     try {
       const apiKey = "AIzaSyDFcUL2_bX0VSXbjs9KvLZn0b9sH19mmzs"; 
       const genAI = new GoogleGenerativeAI(apiKey);
-      
-      // YOU WERE RIGHT: gemini-2.5-flash is the active model
-
-      // const model = genAI.getGenerativeModel({ 
-      //   model: "gemini-2.5-flash",
-      //   // This stops the "dumb" answers by forcing it into a strict persona
-      //   systemInstruction: "You are MediSync AI, an expert medical assistant. Analyze the user's symptoms and recommend a specific doctor specialty (like Cardiologist, Orthopedist). Provide exactly 1 short sentence of professional advice."
-      // });
-      // 🟢 Upgraded brain: Now handles triage AND safe home remedies!
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
         systemInstruction: `You are MediSync AI, a helpful medical triage assistant. Analyze the user's symptoms and do the following in 2 to 3 short sentences:
@@ -113,25 +95,18 @@ const handleChat = async () => {
         2. Suggest one simple, safe home remedy or comfort measure for temporary relief. 
         3. CRITICAL: If the symptoms sound like a severe emergency (e.g., chest pain, severe bleeding, stroke), skip the home remedy and strictly advise immediate emergency care.`
       });
-      // Now we just pass the user's message directly
       const result = await model.generateContent(userMsg);
-      const response = await result.response;
-      const aiText = response.text();
+      const aiText = await result.response.text();
 
       setChatMessages(prev => {
         const updatedChat = [...prev];
         updatedChat[updatedChat.length - 1] = { role: 'bot', text: aiText };
         return updatedChat;
       });
-
     } catch (error) {
-      console.error("Gemini Error:", error);
       setChatMessages(prev => {
         const updatedChat = [...prev];
-        updatedChat[updatedChat.length - 1] = { 
-          role: 'bot', 
-          text: `Connection Error: ${error.message}` 
-        };
+        updatedChat[updatedChat.length - 1] = { role: 'bot', text: `Connection Error: ${error.message}` };
         return updatedChat;
       });
     }
@@ -142,18 +117,9 @@ const handleChat = async () => {
     const phoneRegex = /^[0-9]{10}$/;
     const aadhaarRegex = /^[0-9]{12}$/;
 
-    if (!appointmentForm.name || !appointmentForm.phone || !appointmentForm.aadhaar) {
-      alert("⚠️ Please fill in all required fields.");
-      return;
-    }
-    if (!phoneRegex.test(appointmentForm.phone)) {
-      alert("⚠️ Invalid Phone! 10 digits required.");
-      return;
-    }
-    if (!aadhaarRegex.test(appointmentForm.aadhaar)) {
-      alert("⚠️ Invalid Aadhaar! 12 digits required.");
-      return;
-    }
+    if (!appointmentForm.name || !appointmentForm.phone || !appointmentForm.aadhaar) return alert("⚠️ Please fill in all required fields.");
+    if (!phoneRegex.test(appointmentForm.phone)) return alert("⚠️ Invalid Phone! 10 digits required.");
+    if (!aadhaarRegex.test(appointmentForm.aadhaar)) return alert("⚠️ Invalid Aadhaar! 12 digits required.");
 
     try {
       const selectedDocData = appointmentForm.selectedDoctor ? appointmentModal.doctors[appointmentForm.selectedDoctor] : null;
@@ -177,13 +143,10 @@ const handleChat = async () => {
       
       setAppointmentSent(true);
       setTimeout(() => {
-        setAppointmentModal(null);
-        setAppointmentSent(false);
+        setAppointmentModal(null); setAppointmentSent(false);
         setAppointmentForm({ name: '', phone: '', aadhaar: '', time: 'Morning (9 AM - 12 PM)', symptoms: '', selectedDoctor: '' });
       }, 2000);
-    } catch (error) {
-      console.error("Firebase Error:", error);
-    }
+    } catch (error) { console.error("Firebase Error:", error); }
   };
 
   return (
@@ -201,113 +164,106 @@ const handleChat = async () => {
             ))}
           </div>
         </div>
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <div style={{ fontSize: 12, color: 'var(--sage)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 8, height: 8, background: 'var(--sage)', borderRadius: '50%' }}></span> Logged In
           </div>
-          <button onClick={() => navigate('/patient-dashboard')} style={{ padding: '10px 20px', background: 'var(--cool)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: 13, boxShadow: '0 4px 12px rgba(91,130,196,0.2)' }}>
-            🎫 View My Tokens
-          </button>
+          <button onClick={() => navigate('/patient-dashboard')} style={{ padding: '10px 20px', background: 'var(--cool)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>🎫 View Tokens</button>
         </div>
       </div>
       
       {/* --- MAIN CONTENT --- */}
       <div style={{ padding: '40px 60px' }}>
 
-{/* 🏥 HOSPITALS TAB */}
-{activeTab === 'hospitals' && (
-  <div>
-    {/* STEP 1: If location is NOT set, show the Search Screen */}
-    {!locationSet ? (
-      <div style={{ maxWidth: 500, margin: '80px auto', textAlign: 'center', background: 'var(--bg-surface)', padding: '40px', borderRadius: 24, border: '1px solid var(--border-soft)', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
-        <div style={{ fontSize: 60, marginBottom: 20 }}>📍</div>
-        <h2 style={{ fontSize: 32, marginBottom: 12, fontFamily: 'Instrument Serif' }}>Where are you?</h2>
-        <p style={{ fontSize: 15, color: 'var(--text-muted)', marginBottom: 32, lineHeight: 1.6 }}>
-          Enter your city or area to find the nearest hospitals with live bed and ICU availability.
-        </p>
-        
-        <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-          <input 
-            value={location} 
-            onChange={e => setLocation(e.target.value)} 
-            onKeyDown={e => e.key === 'Enter' && location.trim() && setLocationSet(true)}
-            placeholder="e.g. Noida, South Delhi, Gurugram..." 
-            style={{ flex: 1, padding: '16px', background: 'var(--bg-base)', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'white', fontSize: 15, outline: 'none' }} 
-          />
-          <button 
-            onClick={() => location.trim() && setLocationSet(true)} 
-            style={{ padding: '0 28px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 600, cursor: 'pointer' }}
-          >
-            Find Hospitals
-          </button>
-        </div>
-
-        {/* Quick Select Buttons */}
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {['Noida', 'Gurugram', 'South Delhi'].map(city => (
-            <button 
-              key={city}
-              onClick={() => { setLocation(city); setLocationSet(true); }}
-              style={{ padding: '6px 14px', background: 'rgba(91,130,196,0.1)', border: '1px solid rgba(91,130,196,0.2)', borderRadius: 99, color: 'var(--cool)', fontSize: 12, cursor: 'pointer' }}
-            >
-              {city}
-            </button>
-          ))}
-        </div>
-      </div>
-    ) : (
-      /* STEP 2: If location IS set, show the Hospital Recommendations */
-      <div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32 }}>
+        {/* 🏥 HOSPITALS TAB */}
+        {activeTab === 'hospitals' && (
           <div>
-            <h2 style={{ fontSize: 32, marginBottom: 8, fontFamily: 'Instrument Serif' }}>Hospitals near {location}</h2>
-            <p style={{ fontSize: 14, color: 'var(--sage)' }}>● Showing real-time resource availability</p>
+         {!locationSet ? (
+              <div style={{ maxWidth: 500, margin: '80px auto', textAlign: 'center', background: 'var(--bg-surface)', padding: '40px', borderRadius: 24, border: '1px solid var(--border-soft)', boxShadow: '0 10px 30px rgba(0,0,0,0.2)' }}>
+                <div style={{ fontSize: 60, marginBottom: 20 }}>📍</div>
+                <h2 style={{ fontSize: 32, marginBottom: 12, fontFamily: 'Instrument Serif' }}>Where are you?</h2>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
+                  <input 
+                    value={location} 
+                    onChange={e => setLocation(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && location.trim() && setLocationSet(true)}
+                    placeholder="e.g. Vijay Nagar, Palasia, Bhanwarkuan..." 
+                    style={{ flex: 1, padding: '16px', background: 'var(--bg-base)', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'white', fontSize: 15, outline: 'none' }} 
+                  />
+                  <button 
+                    onClick={() => location.trim() && setLocationSet(true)} 
+                    style={{ padding: '0 28px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Find Hospitals
+                  </button>
+                </div>
+
+                {/* 🟢 CHANGED: Indore Quick Select Buttons */}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {['Vijay Nagar', 'Bhanwarkuan', 'Palasia'].map(city => (
+                    <button 
+                      key={city}
+                      onClick={() => { setLocation(city); setLocationSet(true); }}
+                      style={{ padding: '6px 14px', background: 'rgba(91,130,196,0.1)', border: '1px solid rgba(91,130,196,0.2)', borderRadius: 99, color: 'var(--cool)', fontSize: 12, cursor: 'pointer' }}
+                    >
+                      {city}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32 }}>
+                  <div>
+                    <h2 style={{ fontSize: 32, marginBottom: 8, fontFamily: 'Instrument Serif' }}>Hospitals near {location}</h2>
+                    <p style={{ fontSize: 14, color: 'var(--sage)' }}>● Showing real-time resource availability</p>
+                  </div>
+                  <button onClick={() => { setLocationSet(false); setLocation(''); }} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>📍 Change Location</button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 24 }}>
+                  {hospitalsWithDistance.map((h, idx) => (
+                    <div 
+                      key={h.firestoreId} 
+                      onClick={() => setSelectedHospital(h)} 
+                      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', borderTop: idx === 0 ? '4px solid var(--cool)' : '1px solid var(--border-soft)', borderRadius: 20, padding: 28, cursor: 'pointer', transition: '0.3s' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = 'var(--cool)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = 'var(--border-soft)'; }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                        <div>
+                          <div style={{ fontSize: 22, fontFamily: 'Instrument Serif', marginBottom: 4 }}>{h.name}</div>
+                          <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>📍 {h.location} · <span style={{ color: 'var(--cool)', fontWeight: 600 }}>{h.distance} km</span></div>
+                        </div>
+                        {idx === 0 && <span style={{ background: 'rgba(91,130,196,0.1)', color: 'var(--cool)', padding: '4px 12px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>NEAREST</span>}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+                        <div style={{ flex: 1, padding: '10px', background: 'var(--bg-base)', borderRadius: 12, textAlign: 'center', border: '1px solid var(--border-soft)' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700 }}>{h.icuBeds?.available || 0}</div>
+                          <div style={{ fontSize: 9, color: 'var(--text-faint)', textTransform: 'uppercase' }}>ICU Beds</div>
+                        </div>
+                        <div style={{ flex: 1, padding: '10px', background: 'var(--bg-base)', borderRadius: 12, textAlign: 'center', border: '1px solid var(--border-soft)' }}>
+                          <div style={{ fontSize: 16, fontWeight: 700 }}>{h.generalBeds?.available || 0}</div>
+                          <div style={{ fontSize: 9, color: 'var(--text-faint)', textTransform: 'uppercase' }}>General</div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+                         {h.bloodBank && Object.keys(h.bloodBank).length > 0 && <span style={{fontSize: 11, background: 'rgba(212,132,90,0.1)', color: 'var(--warm)', padding: '4px 8px', borderRadius: 6, fontWeight: 600, border: '1px solid rgba(212,132,90,0.3)'}}>🩸 Blood Bank Synced</span>}
+                         {h.doctors && Object.keys(h.doctors).length > 0 && <span style={{fontSize: 11, background: 'rgba(107,165,131,0.1)', color: 'var(--sage)', padding: '4px 8px', borderRadius: 6, fontWeight: 600, border: '1px solid rgba(107,165,131,0.3)'}}>🩺 Specialists Live</span>}
+                      </div>
+
+                      <button style={{ width: '100%', padding: '14px', background: 'rgba(91,130,196,0.08)', border: '1px solid rgba(91,130,196,0.3)', borderRadius: 12, color: 'var(--cool)', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+                        View Details & Book →
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <button 
-            onClick={() => { setLocationSet(false); setLocation(''); }} 
-            style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}
-          >
-            📍 Change Location
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 24 }}>
-          {hospitalsWithDistance.map((h, idx) => (
-            <div key={h.id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', borderTop: idx === 0 ? '4px solid var(--cool)' : '1px solid var(--border-soft)', borderRadius: 20, padding: 28 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                <div>
-                  <div style={{ fontSize: 22, fontFamily: 'Instrument Serif', marginBottom: 4 }}>{h.name}</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>📍 {h.location} · <span style={{ color: 'var(--cool)', fontWeight: 600 }}>{h.distance} km</span></div>
-                </div>
-                {idx === 0 && <span style={{ background: 'rgba(91,130,196,0.1)', color: 'var(--cool)', padding: '4px 12px', borderRadius: 99, fontSize: 10, fontWeight: 700 }}>RECOMMENDED</span>}
-              </div>
-
-              {/* Resource Mini-Dashboard */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-                <div style={{ flex: 1, padding: '10px', background: 'var(--bg-base)', borderRadius: 12, textAlign: 'center', border: '1px solid var(--border-soft)' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{h.icuBeds?.available || 0}</div>
-                  <div style={{ fontSize: 9, color: 'var(--text-faint)', textTransform: 'uppercase' }}>ICU Beds</div>
-                </div>
-                <div style={{ flex: 1, padding: '10px', background: 'var(--bg-base)', borderRadius: 12, textAlign: 'center', border: '1px solid var(--border-soft)' }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>{h.generalBeds?.available || 0}</div>
-                  <div style={{ fontSize: 9, color: 'var(--text-faint)', textTransform: 'uppercase' }}>General</div>
-                </div>
-              </div>
-
-              <button 
-                onClick={() => setAppointmentModal(h)} 
-                style={{ width: '100%', padding: '14px', background: 'rgba(91,130,196,0.08)', border: '1px solid rgba(91,130,196,0.3)', borderRadius: 12, color: 'var(--cool)', cursor: 'pointer', fontSize: 14, fontWeight: 600 }}
-              >
-                Book Appointment →
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-    )}
-  </div>
-)}
+        )}
 
         {/* 🤖 AI ASSISTANT TAB */}
         {activeTab === 'chatbot' && (
@@ -316,7 +272,6 @@ const handleChat = async () => {
               <h2 style={{ fontSize: 32, fontFamily: 'Instrument Serif', marginBottom: 8 }}>AI Symptom Assistant</h2>
               <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Describe how you feel, and our AI will direct you to the right specialist.</p>
             </div>
-            
             <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', borderRadius: 24, padding: 30, height: 450, overflowY: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -326,7 +281,6 @@ const handleChat = async () => {
                 </div>
               ))}
             </div>
-            
             <div style={{ display: 'flex', gap: 12, background: 'var(--bg-surface)', padding: 12, borderRadius: 18, border: '1px solid var(--border-soft)' }}>
               <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChat()} placeholder="e.g. I have a sharp pain in my lower back..." style={{ flex: 1, padding: '14px', background: 'transparent', border: 'none', color: 'white', fontSize: 15, outline: 'none' }} />
               <button onClick={handleChat} style={{ padding: '0 24px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Send →</button>
@@ -359,6 +313,97 @@ const handleChat = async () => {
           </div>
         )}
       </div>
+
+      {/* --- HOSPITAL DETAIL MODAL --- */}
+      {selectedHospital && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
+          <div style={{ background: 'var(--bg-surface)', width: '100%', maxWidth: 850, borderRadius: 24, border: '1px solid var(--border-soft)', maxHeight: '90vh', overflowY: 'auto', padding: 40 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, borderBottom: '1px solid var(--border-soft)', paddingBottom: 20 }}>
+              <div>
+                <h2 style={{ fontSize: 36, fontFamily: 'Instrument Serif', margin: 0 }}>{selectedHospital.name}</h2>
+                <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>📍 {selectedHospital.location} • Real-Time Resources</p>
+              </div>
+              <button onClick={() => setSelectedHospital(null)} style={{ background: 'none', border: 'none', color: 'white', fontSize: 24, cursor: 'pointer' }}>✕</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, marginBottom: 32 }}>
+              <div>
+                <h3 style={{ fontSize: 16, color: 'var(--cool)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Live Capacity</h3>
+                <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+                  <div style={{ flex: 1, padding: '16px', background: 'var(--bg-base)', borderRadius: 12, border: '1px solid var(--border-soft)' }}>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--sage)' }}>{selectedHospital.icuBeds?.available || 0}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>ICU BEDS</div>
+                  </div>
+                  <div style={{ flex: 1, padding: '16px', background: 'var(--bg-base)', borderRadius: 12, border: '1px solid var(--border-soft)' }}>
+                    <div style={{ fontSize: 28, fontWeight: 800 }}>{selectedHospital.ambulances?.available || 0}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>AMBULANCES</div>
+                  </div>
+                </div>
+
+                <h3 style={{ fontSize: 16, color: 'var(--sage)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Doctors On Duty</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {selectedHospital.doctors && Object.entries(selectedHospital.doctors).length > 0 ? (
+                    Object.entries(selectedHospital.doctors).map(([docName, docData]) => (
+                      <div key={docName} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid var(--border-soft)' }}>
+                        <span style={{ fontSize: 14 }}>{docData.icon} {docName}</span>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: docData.available > 0 ? '#81e6a4' : '#ff6b6b' }}>
+                          {docData.available} Available
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ color: 'var(--text-faint)', fontSize: 14 }}>No specific doctor data available.</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 style={{ fontSize: 16, color: 'var(--warm)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>Equipment Status</h3>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+                  {selectedHospital.equipment && Object.entries(selectedHospital.equipment).length > 0 ? (
+                    Object.entries(selectedHospital.equipment).map(([eqName, eqData]) => (
+                      <div key={eqName} style={{ padding: '8px 14px', background: eqData.available > 0 ? 'rgba(107, 165, 131, 0.1)' : 'rgba(184, 92, 92, 0.1)', border: `1px solid ${eqData.available > 0 ? 'rgba(107, 165, 131, 0.3)' : 'rgba(184, 92, 92, 0.3)'}`, borderRadius: 99, fontSize: 13 }}>
+                        {eqData.icon} {eqName}: {eqData.available > 0 ? 'Ready' : 'In Use/Maintenance'}
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ color: 'var(--text-faint)', fontSize: 14 }}>No equipment tracking active.</p>
+                  )}
+                </div>
+
+                <div style={{ background: 'var(--bg-base)', padding: '24px', borderRadius: 16, border: '1px solid var(--border-soft)' }}>
+                  <h3 style={{ fontSize: 16, marginBottom: 16 }}>Blood Bank</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                    {selectedHospital.bloodBank ? (
+                      Object.entries(selectedHospital.bloodBank).map(([bType, bUnits]) => (
+                        <div key={bType} style={{ textAlign: 'center', padding: '8px', background: 'var(--bg-surface)', borderRadius: 8 }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: bUnits > 0 ? 'var(--clay)' : 'var(--text-muted)' }}>{bUnits}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>{bType}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <p style={{ color: 'var(--text-faint)', fontSize: 12, gridColumn: 'span 4' }}>No blood data synced.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 16, paddingTop: 20, borderTop: '1px solid var(--border-soft)' }}>
+              <button onClick={() => setSelectedHospital(null)} style={{ flex: 1, padding: '16px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'white', fontWeight: 600, cursor: 'pointer' }}>Close Details</button>
+              <button 
+                onClick={() => {
+                  setAppointmentModal(selectedHospital); 
+                  setSelectedHospital(null); 
+                }} 
+                style={{ flex: 1, padding: '16px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: 'white', fontWeight: 700, cursor: 'pointer', fontSize: 16 }}
+              >
+                Proceed to Book Token →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- APPOINTMENT MODAL --- */}
       {appointmentModal && (
