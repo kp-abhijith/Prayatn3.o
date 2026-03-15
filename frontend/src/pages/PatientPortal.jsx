@@ -1,9 +1,20 @@
 import { useState, useEffect } from 'react'
-import { db } from '../firebase'
 import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { DONORS } from '../data/mockData'
+import { db, auth } from '../firebase'
+import { useNavigate } from 'react-router-dom';
 
 export default function PatientPortal() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        console.log("No user found! Redirecting to login...");
+        navigate('/patient-dashboard'); 
+      }
+    });
+    return () => unsubscribe(); // Cleanup the listener
+  }, [navigate]);
   const [hospitals, setHospitals] = useState([])
   const [activeTab, setActiveTab] = useState('hospitals')
   const [location, setLocation] = useState('')
@@ -99,15 +110,29 @@ export default function PatientPortal() {
     return matchBlood && matchCity
   })
 const handleAppointmentSubmit = async () => {
-    // 1. Validation
+    // 1. IRONCLAD VALIDATION
+    const phoneRegex = /^[0-9]{10}$/; // Exactly 10 digits
+    const aadhaarRegex = /^[0-9]{12}$/; // Exactly 12 digits
+
     if (!appointmentForm.name || !appointmentForm.phone || !appointmentForm.aadhaar) {
-      alert("Please fill in Name, Phone, and Aadhaar");
+      alert("⚠️ Please fill in all required fields (Name, Phone, and Aadhaar).");
+      return;
+    }
+    
+    if (!phoneRegex.test(appointmentForm.phone)) {
+      alert("⚠️ Invalid Phone! Please enter exactly 10 digits without any spaces or letters.");
+      return;
+    }
+    
+    if (!aadhaarRegex.test(appointmentForm.aadhaar)) {
+      alert("⚠️ Invalid Aadhaar! Please enter a valid 12-digit Aadhaar number.");
       return;
     }
 
     try {
-      // 2. Calculate the fee to charge (Default to 500 if no doctor or fee is found)
+      // ... the rest of your Firebase try/catch block stays exactly the same!
       const selectedDocData = appointmentForm.selectedDoctor ? appointmentModal.doctors[appointmentForm.selectedDoctor] : null;
+      
       const feeToCharge = selectedDocData && selectedDocData.fee ? selectedDocData.fee : 500;
 
       // 3. Push to Firestore
@@ -122,7 +147,11 @@ const handleAppointmentSubmit = async () => {
         symptoms: appointmentForm.symptoms || "No symptoms provided",
         fee: feeToCharge, // 💰 SAVES THE FEE TO THE DATABASE
         status: "pending",
+        // ... inside the addDoc block
+        patientUid: auth.currentUser ? auth.currentUser.uid : "guest", // 👈 Connects token to user
+        tokenNumber: `TKN-${Math.floor(Math.random() * 900) + 100}`, // 👈 Generates the token
         createdAt: serverTimestamp()
+        // ...
       });
       
       // 4. Success UI & Reset
@@ -136,23 +165,39 @@ const handleAppointmentSubmit = async () => {
       console.error("Firebase Error:", error);
     }
   };
-
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--bg-base)' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-base)', color: 'white' }}>
+      
       {/* top nav */}
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-soft)', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-        <div style={{ fontFamily: 'Instrument Serif', fontSize: 22 }}>🏥 MediSync</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ padding: '7px 16px', background: activeTab === tab.id ? 'rgba(91,130,196,0.12)' : 'transparent', border: activeTab === tab.id ? '1px solid rgba(91,130,196,0.3)' : '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: activeTab === tab.id ? 'var(--cool)' : 'var(--text-muted)', fontSize: 13, fontWeight: activeTab === tab.id ? 600 : 400 }}>
-              {tab.icon} {tab.label}
-            </button>
-          ))}
+        
+        {/* LEFT SIDE: Logo & Tabs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
+          <div style={{ fontFamily: 'Instrument Serif', fontSize: 22 }}>🏥 MediSync</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ padding: '7px 16px', background: activeTab === tab.id ? 'rgba(91,130,196,0.12)' : 'transparent', border: activeTab === tab.id ? '1px solid rgba(91,130,196,0.3)' : '1px solid transparent', borderRadius: 8, cursor: 'pointer', color: activeTab === tab.id ? 'var(--cool)' : 'var(--text-muted)', fontSize: 13, fontWeight: activeTab === tab.id ? 600 : 400 }}>
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>Public Access · No login required</div>
-      </div>
 
+        {/* RIGHT SIDE: Live Status & Token Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ fontSize: 12, color: 'var(--sage)', fontWeight: 600 }}>🟢 Logged In</div>
+          <button 
+            onClick={() => navigate('/patient-dashboard')} 
+            style={{ padding: '8px 16px', background: 'rgba(91,130,196,0.1)', border: '1px solid rgba(91,130,196,0.3)', borderRadius: 8, color: 'var(--cool)', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
+          >
+            🎫 View My Tokens
+          </button>
+        </div>
+      </div>
+      
+      {/* Page Content Container */}
       <div style={{ padding: '32px 36px' }}>
+ 
         {/* HOSPITALS TAB */}
         {activeTab === 'hospitals' && (
           <div>
@@ -314,10 +359,10 @@ const handleAppointmentSubmit = async () => {
                 {/* 3. Patient Details */}
                 <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
                   <input placeholder="Full Name" value={appointmentForm.name} onChange={e => setAppointmentForm(p => ({ ...p, name: e.target.value }))} style={{ flex: 1, padding: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
-                  <input placeholder="Mobile" value={appointmentForm.phone} onChange={e => setAppointmentForm(p => ({ ...p, phone: e.target.value }))} style={{ flex: 1, padding: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
+                  <input type="number" placeholder="Mobile Number (10 digits)" value={appointmentForm.phone} onChange={e => setAppointmentForm(p => ({ ...p, phone: e.target.value.slice(0, 10) }))} style={{ flex: 1, padding: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
                 </div>
 
-                <input placeholder="Aadhaar Number (12 digits)" value={appointmentForm.aadhaar || ''} onChange={e => setAppointmentForm(p => ({ ...p, aadhaar: e.target.value }))} style={{ width: '100%', padding: 10, marginBottom: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
+               <input type="number" placeholder="Aadhaar Number (12 digits)" value={appointmentForm.aadhaar || ''} onChange={e => setAppointmentForm(p => ({ ...p, aadhaar: e.target.value.slice(0, 12) }))} style={{ width: '100%', padding: 10, marginBottom: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }} />
 
                 {/* 4. Time Preference */}
                 <select value={appointmentForm.time || 'Morning (9 AM - 12 PM)'} onChange={e => setAppointmentForm(p => ({ ...p, time: e.target.value }))} style={{ width: '100%', padding: 10, marginBottom: 10, borderRadius: 8, background: 'var(--bg-base)', color: 'white', border: '1px solid var(--border-soft)' }}>

@@ -75,16 +75,16 @@ export default function LoginPage() {
             </button>
 
             <button
-              onClick={() => navigate('/patient')}
+              onClick={() => navigate('/patient-dashboard')}
               style={{ width:'100%', padding:16, background:'rgba(91,130,196,0.06)', border:'1px solid rgba(91,130,196,0.2)', borderLeft:'2px solid rgba(91,130,196,0.6)', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', gap:14, position:'relative' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(91,130,196,0.5)'; e.currentTarget.style.transform='translateY(-2px)' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(91,130,196,0.2)'; e.currentTarget.style.transform='translateY(0)' }}
             >
-              <span style={{ position:'absolute', top:8, right:10, fontSize:9, color:'var(--cool)', letterSpacing:1, textTransform:'uppercase' }}>No Login Needed</span>
+              <span style={{ position:'absolute', top:8, right:10, fontSize:9, color:'var(--sage)', letterSpacing:1, textTransform:'uppercase', fontWeight: 600 }}>Live Tracking</span>
               <div style={{ width:38, height:38, background:'rgba(91,130,196,0.1)', borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>🧑</div>
               <div style={{ textAlign:'left' }}>
-                <div style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>Patient / Public</div>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Find hospitals, donors, AI chat</div>
+                <div style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>Patient Login</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Track tokens & book hospitals</div>
               </div>
               <span style={{ marginLeft:'auto', color:'var(--text-faint)', fontSize:16 }}>→</span>
             </button>
