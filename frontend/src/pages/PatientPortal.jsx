@@ -99,12 +99,20 @@ const handleChat = async () => {
       const genAI = new GoogleGenerativeAI(apiKey);
       
       // YOU WERE RIGHT: gemini-2.5-flash is the active model
+
+      // const model = genAI.getGenerativeModel({ 
+      //   model: "gemini-2.5-flash",
+      //   // This stops the "dumb" answers by forcing it into a strict persona
+      //   systemInstruction: "You are MediSync AI, an expert medical assistant. Analyze the user's symptoms and recommend a specific doctor specialty (like Cardiologist, Orthopedist). Provide exactly 1 short sentence of professional advice."
+      // });
+      // 🟢 Upgraded brain: Now handles triage AND safe home remedies!
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
-        // This stops the "dumb" answers by forcing it into a strict persona
-        systemInstruction: "You are MediSync AI, an expert medical assistant. Analyze the user's symptoms and recommend a specific doctor specialty (like Cardiologist, Orthopedist). Provide exactly 1 short sentence of professional advice."
+        systemInstruction: `You are MediSync AI, a helpful medical triage assistant. Analyze the user's symptoms and do the following in 2 to 3 short sentences:
+        1. Recommend a specific doctor specialty (like Dermatologist, Orthopedist).
+        2. Suggest one simple, safe home remedy or comfort measure for temporary relief. 
+        3. CRITICAL: If the symptoms sound like a severe emergency (e.g., chest pain, severe bleeding, stroke), skip the home remedy and strictly advise immediate emergency care.`
       });
-
       // Now we just pass the user's message directly
       const result = await model.generateContent(userMsg);
       const response = await result.response;
