@@ -14,7 +14,8 @@ export default function App() {
       <Routes>
         <Route path="/"                 element={<LoginPage />} />
         <Route path="/dashboard"        element={<DoctorDashboard />} />
-        
+        <Route path="/doctor-dashboard" element={<DoctorDashboard />} /> 
+// (Make sure tune DoctorDashboard ko upar import kiya ho)
         {/* The Booking Page */}
         <Route path="/patient"          element={<PatientPortal />} /> 
         

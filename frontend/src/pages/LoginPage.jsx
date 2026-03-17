@@ -12,12 +12,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  // const validateEmail = (e) => {
-  //   console.log("validating...")
-  //   // todo: add regex check later
-  // }
-
-  // handle firebase login
   const handleLogin = async () => {
     if (!email || !password) {
       setError('Please fill in both fields')
@@ -26,13 +20,10 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     
-    // console.log("attempting login for:", email)
-
     try {
       await signInWithEmailAndPassword(auth, email, password)
-      navigate('/dashboard')
+      navigate('/doctor-dashboard') // Ensure this matches your App.jsx route
     } catch (err) {
-      // map firebase errors to readable text
       if (err.code === 'auth/user-not-found')   setError('No account found with this email')
       else if (err.code === 'auth/wrong-password') setError('Incorrect password')
       else if (err.code === 'auth/invalid-email')  setError('Invalid email address')
@@ -44,144 +35,109 @@ export default function LoginPage() {
 
   return (
     <div style={{ 
-      '--bg-base': '#f5f1e7', 
+      '--bg-base': '#f0f5f3', 
       '--bg-surface': '#ffffff', 
-      '--bg-raised': '#fcfbf8',
-      '--border-soft': '#e8e3d8', 
-      '--cool': '#8c7362', 
-      '--sage': '#6d8a70', 
-      '--warm': '#d49679', 
-      '--clay': '#c26d6d',
-      '--amber': '#d4a373',
-      '--text-primary': '#363431',
-      '--text-muted': '#7a7671',
-      '--text-faint': '#a39f9a',
-      minHeight:'100vh', background:'var(--bg-base)', color: 'var(--text-primary)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden', fontFamily: 'IBM Plex Sans, sans-serif' 
+      '--bg-raised': '#f8fdfa',
+      '--border-soft': '#d1e5dd', 
+      '--cool': '#0d5f0d', 
+      '--sage': '#16a34a', 
+      '--clay': '#dc2626',
+      '--text-primary': '#0f172a',
+      '--text-muted': '#475569',
+      '--text-faint': '#64748b',
+      minHeight:'100vh', background:'var(--bg-base)', color: 'var(--text-primary)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', position:'relative', overflow:'hidden', fontFamily: 'Inter, sans-serif' 
     }}>
 
-      {/* critical alert banner */}
-      <div style={{ position:'fixed', top:0, left:0, right:0, height:36, background:'rgba(194,109,109,0.1)', borderBottom:'1px solid rgba(194,109,109,0.2)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 }}>
-        <span style={{ fontSize:12, color:'var(--clay)', fontWeight: 600 }}>🔴 &nbsp; 3 critical alerts in local hospitals right now</span>
+      {/* Critical Alert Banner */}
+      <div style={{ position:'fixed', top:0, left:0, right:0, height:36, background:'rgba(220,38,38,0.1)', borderBottom:'1px solid rgba(220,38,38,0.2)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:100 }}>
+        <span style={{ fontSize:12, color:'var(--clay)', fontWeight: 800 }}>🔴 &nbsp; 3 critical alerts across local hospitals right now</span>
       </div>
 
-      <div style={{ position:'fixed', top:-100, left:-100, width:500, height:500, borderRadius:'50%', background:'radial-gradient(circle, rgba(140, 115, 98,0.08), transparent 70%)', filter:'blur(40px)', pointerEvents:'none' }}/>
-      <div style={{ position:'fixed', bottom:-100, right:-100, width:500, height:500, borderRadius:'50%', background:'radial-gradient(circle, rgba(109,138,112,0.08), transparent 70%)', filter:'blur(40px)', pointerEvents:'none' }}/>
+      {/* Green Glow Effects */}
+      <div style={{ position:'fixed', top:-100, left:-100, width:500, height:500, borderRadius:'50%', background:'radial-gradient(circle, rgba(13, 95, 13,0.08), transparent 70%)', filter:'blur(40px)', pointerEvents:'none' }}/>
+      <div style={{ position:'fixed', bottom:-100, right:-100, width:500, height:500, borderRadius:'50%', background:'radial-gradient(circle, rgba(22, 163, 74,0.08), transparent 70%)', filter:'blur(40px)', pointerEvents:'none' }}/>
 
-      <div style={{ width:'90%', maxWidth:440, margin:'0 auto', background:'var(--bg-surface)', border:'1px solid var(--border-soft)', borderLeft:'3px solid rgba(140, 115, 98, 0.4)', borderRadius:16, padding:'44px 40px', position:'relative', zIndex:1, marginTop:36, boxShadow: '0 20px 40px rgba(0,0,0,0.04)' }}>
+      <div style={{ width:'90%', maxWidth:440, margin:'0 auto', background:'var(--bg-surface)', border:'1px solid var(--border-soft)', borderLeft:'4px solid var(--cool)', borderRadius:20, padding:'44px 40px', position:'relative', zIndex:1, marginTop:36, boxShadow: '0 20px 40px rgba(0,0,0,0.05)' }}>
 
         <div style={{ marginBottom:8 }}>
-          <div style={{ width:40, height:40, background:'rgba(140, 115, 98, 0.1)', borderRadius:10, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:20, marginBottom:14 }}>🏥</div>
-          <h1 style={{ fontSize:38, margin:'0 0 4px 0', letterSpacing:'-0.5px', fontFamily: 'Instrument Serif' }}>MediSync</h1>
-          <div style={{ width:40, height:2, background:'var(--cool)', margin:'8px 0 12px 0' }}/>
-          <p style={{ fontSize:13, color:'var(--text-muted)', margin:0 }}>Real-time hospital resource coordination</p>
+          <div style={{ width:44, height:44, background:'rgba(13, 95, 13, 0.1)', borderRadius:12, display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:22, marginBottom:16 }}>🏥</div>
+          <h1 style={{ fontSize:40, margin:'0 0 4px 0', letterSpacing:'-0.5px', fontFamily: 'Instrument Serif', fontWeight: 800, color: 'var(--text-primary)' }}>MediSync</h1>
+          <div style={{ width:40, height:3, background:'var(--cool)', margin:'8px 0 12px 0', borderRadius: 2 }}/>
+          <p style={{ fontSize:14, color:'var(--text-muted)', margin:0, fontWeight: 500 }}>Real-time hospital resource coordination</p>
         </div>
 
-        <div style={{ height:1, background:'var(--border-soft)', margin:'24px 0' }}/>
+        <div style={{ height:1, background:'var(--border-soft)', margin:'28px 0' }}/>
 
-        {/* role selection screen */}
+        {/* ROLE SELECTION SCREEN */}
         {step === 'home' && (
-          <div>
-            <p style={{ fontSize:10, letterSpacing:2, color:'var(--text-faint)', textTransform:'uppercase', marginBottom:12 }}>Continue as</p>
+          <div style={{ paddingBottom: 10 }}>
+            <p style={{ fontSize:11, letterSpacing:2, color:'var(--text-faint)', textTransform:'uppercase', marginBottom:16, fontWeight: 800 }}>Continue as</p>
 
             <button
               onClick={() => setStep('doctor')}
-              style={{ width:'100%', padding:16, background:'rgba(140, 115, 98, 0.04)', border:'1px solid rgba(140, 115, 98, 0.2)', borderLeft:'2px solid rgba(140, 115, 98, 0.6)', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', gap:14, marginBottom:10, position:'relative', transition: '0.2s' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(140, 115, 98, 0.5)'; e.currentTarget.style.transform='translateY(-2px)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(140, 115, 98, 0.2)'; e.currentTarget.style.transform='translateY(0)' }}
+              style={{ width:'100%', padding:20, background:'rgba(13, 95, 13, 0.04)', border:'1px solid var(--border-soft)', borderLeft:'3px solid var(--cool)', borderRadius:14, cursor:'pointer', display:'flex', alignItems:'center', gap:16, marginBottom:12, position:'relative', transition: '0.2s' }}
             >
-              <span style={{ position:'absolute', top:8, right:10, fontSize:9, color:'var(--cool)', letterSpacing:1, textTransform:'uppercase', fontWeight: 600 }}>Staff Access</span>
-              <div style={{ width:38, height:38, background:'rgba(140, 115, 98, 0.1)', borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>👨‍⚕️</div>
+              <div style={{ width:40, height:40, background:'rgba(13, 95, 13, 0.1)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>👨‍⚕️</div>
               <div style={{ textAlign:'left' }}>
-                <div style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>Doctor / Staff</div>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Manage your hospital's resources</div>
+                <div style={{ fontSize:15, fontWeight:800, color:'var(--text-primary)' }}>Doctor / Staff</div>
+                <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:2, fontWeight: 500 }}>Manage hospital resources</div>
               </div>
-              <span style={{ marginLeft:'auto', color:'var(--text-faint)', fontSize:16 }}>→</span>
+              <span style={{ marginLeft:'auto', color:'var(--cool)', fontWeight: 800, fontSize: 18 }}>→</span>
             </button>
 
             <button
-              onClick={() => navigate('/patient-dashboard')}
-              style={{ width:'100%', padding:16, background:'rgba(109,138,112,0.04)', border:'1px solid rgba(109,138,112,0.2)', borderLeft:'2px solid rgba(109,138,112,0.6)', borderRadius:12, cursor:'pointer', display:'flex', alignItems:'center', gap:14, position:'relative', transition: '0.2s' }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor='rgba(109,138,112,0.5)'; e.currentTarget.style.transform='translateY(-2px)' }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor='rgba(109,138,112,0.2)'; e.currentTarget.style.transform='translateY(0)' }}
+              onClick={() => navigate('/patient')}
+              style={{ width:'100%', padding:20, background:'rgba(22, 163, 74, 0.04)', border:'1px solid var(--border-soft)', borderLeft:'3px solid var(--sage)', borderRadius:14, cursor:'pointer', display:'flex', alignItems:'center', gap:16, position:'relative', transition: '0.2s' }}
             >
-              <span style={{ position:'absolute', top:8, right:10, fontSize:9, color:'var(--sage)', letterSpacing:1, textTransform:'uppercase', fontWeight: 600 }}>Live Tracking</span>
-              <div style={{ width:38, height:38, background:'rgba(109,138,112,0.1)', borderRadius:9, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, flexShrink:0 }}>🧑</div>
+              <div style={{ width:40, height:40, background:'rgba(22, 163, 74, 0.1)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>🧑</div>
               <div style={{ textAlign:'left' }}>
-                <div style={{ fontSize:14, fontWeight:600, color:'var(--text-primary)' }}>Patient Login</div>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>Track tokens & book hospitals</div>
+                <div style={{ fontSize:15, fontWeight:800, color:'var(--text-primary)' }}>Patient Portal</div>
+                <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:2, fontWeight: 500 }}>Track tokens & book hospitals</div>
               </div>
-              <span style={{ marginLeft:'auto', color:'var(--text-faint)', fontSize:16 }}>→</span>
+              <span style={{ marginLeft:'auto', color:'var(--sage)', fontWeight: 800, fontSize: 18 }}>→</span>
             </button>
-
-            <div style={{ display:'flex', marginTop:28, paddingTop:20, borderTop:'1px solid var(--border-soft)' }}>
-              {[
-                { num:'24',   label:'Hospitals', color:'var(--warm)' },
-                { num:'1.2k', label:'Doctors',   color:'var(--sage)' },
-                { num:'38',   label:'Alerts',    color:'var(--clay)' },
-              ].map(({ num, label, color }, i) => (
-                <div key={label} style={{ flex:1, textAlign:'center', borderRight: i < 2 ? '1px solid var(--border-soft)' : 'none' }}>
-                  <div style={{ fontFamily:'Instrument Serif', fontSize:22, color }}>{num}</div>
-                  <div style={{ fontSize:11, color:'var(--text-faint)', marginTop:2 }}>{label}</div>
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
-        {/* doctor login screen */}
+        {/* DOCTOR LOGIN SCREEN */}
         {step === 'doctor' && (
           <div>
-            <button onClick={() => { setStep('home'); setError('') }} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:13, marginBottom:20, padding:0 }}>← Back</button>
+            <button onClick={() => { setStep('home'); setError('') }} style={{ background:'none', border:'none', color:'var(--cool)', cursor:'pointer', fontSize:14, marginBottom:24, padding:0, fontWeight: 800 }}>← Back</button>
 
-            <h2 style={{ fontSize:22, marginBottom:6, color: 'var(--text-primary)' }}>Sign in to your hospital</h2>
-            <p style={{ fontSize:13, color:'var(--text-muted)', marginBottom:24 }}>Enter your hospital credentials</p>
+            <h2 style={{ fontSize:24, marginBottom:8, fontWeight: 800, color: 'var(--text-primary)' }}>Sign in to your hospital</h2>
+            <p style={{ fontSize:14, color:'var(--text-muted)', marginBottom:24, fontWeight: 500 }}>Enter your official credentials</p>
 
-            <div style={{ marginBottom:14 }}>
-              <label style={{ display:'block', fontSize:10, textTransform:'uppercase', letterSpacing:1, color:'var(--text-faint)', marginBottom:6 }}>Hospital Email</label>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ display:'block', fontSize:11, textTransform:'uppercase', letterSpacing:1, color:'var(--cool)', marginBottom:8, fontWeight: 800 }}>Hospital Email</label>
               <input
-                type="email"
-                placeholder="doctor@hospital.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                style={{ width:'100%', padding:'12px 14px', background:'var(--bg-raised)', border:'1px solid var(--border-soft)', borderRadius:10, color:'var(--text-primary)', fontSize:14, fontFamily:'IBM Plex Sans', outline: 'none' }}
+                type="email" placeholder="doctor@hospital.com" value={email} onChange={e => setEmail(e.target.value)}
+                style={{ width:'100%', padding:'14px', background:'var(--bg-raised)', border:'1px solid var(--border-soft)', borderRadius:12, color:'var(--text-primary)', fontSize:15, outline: 'none', fontWeight: 600, boxSizing: 'border-box' }}
               />
             </div>
 
-            <div style={{ marginBottom:8 }}>
-              <label style={{ display:'block', fontSize:10, textTransform:'uppercase', letterSpacing:1, color:'var(--text-faint)', marginBottom:6 }}>Password</label>
+            <div style={{ marginBottom:12 }}>
+              <label style={{ display:'block', fontSize:11, textTransform:'uppercase', letterSpacing:1, color:'var(--cool)', marginBottom:8, fontWeight: 800 }}>Password</label>
               <div style={{ position:'relative' }}>
                 <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleLogin()}
-                  style={{ width:'100%', padding:'12px 40px 12px 14px', background:'var(--bg-raised)', border:'1px solid var(--border-soft)', borderRadius:10, color:'var(--text-primary)', fontSize:14, fontFamily:'IBM Plex Sans', outline: 'none' }}
+                  type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleLogin()}
+                  style={{ width:'100%', padding:'14px 44px 14px 14px', background:'var(--bg-raised)', border:'1px solid var(--border-soft)', borderRadius:12, color:'var(--text-primary)', fontSize:15, outline: 'none', fontWeight: 600, boxSizing: 'border-box' }}
                 />
-                <button onClick={() => setShowPassword(!showPassword)} style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:14, color:'var(--text-faint)' }}>
+                <button onClick={() => setShowPassword(!showPassword)} style={{ position:'absolute', right:14, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:16 }}>
                   {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
             </div>
 
-            {error && <p style={{ fontSize:12, color:'var(--clay)', marginTop:6 }}>⚠️ {error}</p>}
+            {error && <p style={{ fontSize:13, color:'var(--clay)', marginTop:8, fontWeight: 700 }}>⚠️ {error}</p>}
 
-            <p style={{ fontSize:11, color:'var(--text-faint)', marginTop:8 }}>
-              Demo: doctor@aiims.com / doctor123
-            </p>
+            <p style={{ fontSize:12, color:'var(--text-faint)', marginTop:12, fontWeight: 600 }}>Demo: doctor@aiims.com / doctor123</p>
 
             <button
-              onClick={handleLogin}
-              disabled={loading}
-              style={{ width:'100%', padding:14, marginTop:16, background:'var(--cool)', border:'none', borderRadius:10, color:'white', fontSize:14, fontWeight:600, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}
+              onClick={handleLogin} disabled={loading}
+              style={{ width:'100%', padding:16, marginTop:20, background:'var(--cool)', border:'none', borderRadius:12, color:'white', fontSize:15, fontWeight:800, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: '0 8px 16px rgba(13, 95, 13, 0.2)' }}
             >
-              {loading ? 'Signing in...' : 'Sign In →'}
+              {loading ? 'Authenticating...' : 'Secure Sign In →'}
             </button>
-
-            <p style={{ textAlign:'center', fontSize:12, color:'var(--text-muted)', marginTop:16 }}>
-              New hospital?{' '}
-              <span style={{ color:'var(--cool)', cursor:'pointer', fontWeight: 600 }}>Register here</span>
-            </p>
           </div>
         )}
       </div>
