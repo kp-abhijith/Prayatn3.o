@@ -3,27 +3,51 @@ import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firest
 import { db, auth } from '../firebase'
 import { useNavigate } from 'react-router-dom';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 
 export default function PatientPortal() {
   const navigate = useNavigate();
   const chatEndRef = useRef(null);
+  
+  const [role, setRole] = useState(null); 
+  const [patientCity, setPatientCity] = useState('');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // check auth on load
+  // 🟢 Google Login Checker
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (!user) {
-        console.log("No user found! Redirecting to login...");
-        navigate('/patient-dashboard'); 
+      if (user) {
+        setRole('patient'); 
       }
     });
     return () => unsubscribe();
-  }, [navigate]);
+  }, []);
 
-  // state vars
+  // 🟢 Google Login
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      setRole('patient'); 
+    } catch (error) {
+      console.warn("Real Google Auth failed. Using Demo Mode.", error);
+      setRole('patient'); // Hackathon Fallback
+    }
+  };
+
+  // 🟢 Logout
+  const handleLogout = async () => {
+    await signOut(auth);
+    setRole(null);
+    setIsLoggedIn(false);
+    setLocationSet(false);
+    setPatientCity('');
+  };
+
   const [hospitals, setHospitals] = useState([])
   const [activeTab, setActiveTab] = useState('hospitals')
   const [location, setLocation] = useState('Indore') 
-  const [locationSet, setLocationSet] = useState(true) 
+  const [locationSet, setLocationSet] = useState(false) 
   const [selectedHospital, setSelectedHospital] = useState(null)
   const [chatMessages, setChatMessages] = useState([
     { role: 'bot', text: "Hi! I'm MediSync AI. Describe your symptoms and I'll suggest which specialist and hospital to visit." }
@@ -35,20 +59,16 @@ export default function PatientPortal() {
   });
   const [appointmentSent, setAppointmentSent] = useState(false)
 
-  // fetch hospitals realtime
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'hospitals'), snapshot => {
       const data = snapshot.docs
         .map(d => ({ ...d.data(), firestoreId: d.id }))
         .sort((a, b) => a.id - b.id)
-      
-      // console.log("data updated from firebase", data.length)
       setHospitals(data)
     })
     return () => unsub()
   }, [])
 
-  // force modal update if db changes in background
   useEffect(() => {
     if (selectedHospital) {
       const freshData = hospitals.find(h => h.firestoreId === selectedHospital.firestoreId);
@@ -56,7 +76,7 @@ export default function PatientPortal() {
         setSelectedHospital(freshData);
       }
     }
-  }, [hospitals]);
+  }, [hospitals, selectedHospital]);
 
   const tabs = [
     { id: 'hospitals', label: 'Hospitals' },
@@ -64,13 +84,6 @@ export default function PatientPortal() {
     { id: 'blood', label: 'Blood Finder' },
   ]
 
-
-  // const oldMockDist = (hLoc) => {
-  //   console.log("old method");
-  //   return 5;
-  // }
-
-  // random distance generator based on location match
   const getMockDistance = (hospitalLocation, userLocation) => {
     if (!hospitalLocation) return 5;
     const loc = userLocation.toLowerCase()
@@ -84,26 +97,35 @@ export default function PatientPortal() {
     distance: getMockDistance(h.location, location)
   })).sort((a, b) => a.distance - b.distance)
 
-  // gemini api call
   const handleChat = async () => {
     if (!chatInput.trim()) return;
     const userMsg = chatInput;
     setChatMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setChatInput('');
-    setChatMessages(prev => [...prev, { role: 'bot', text: 'Thinking...' }]);
-
-    console.log("calling gemini with:", userMsg)
+    setChatMessages(prev => [...prev, { role: 'bot', text: 'Analyzing symptoms and finding the best equipped hospital near you...' }]);
 
     try {
       const apiKey = "AIzaSyDFcUL2_bX0VSXbjs9KvLZn0b9sH19mmzs"; 
       const genAI = new GoogleGenerativeAI(apiKey);
+      
+      const liveHospitalContext = hospitalsWithDistance.map(h => {
+        const icuBeds = h.icuBeds?.available || 0;
+        const availableDocs = h.doctors ? Object.keys(h.doctors).join(', ') : 'General Physicians';
+        return `[Hospital: ${h.name} | Distance: ${h.distance} km | ICU Beds Available: ${icuBeds} | Specialists: ${availableDocs}]`;
+      }).join('\n');
+
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
-        systemInstruction: `You are MediSync AI, a helpful medical triage assistant. Analyze the user's symptoms and do the following in 2 to 3 short sentences:
-        1. Recommend a specific doctor specialty (like Dermatologist, Orthopedist).
-        2. Suggest one simple, safe home remedy or comfort measure for temporary relief. 
-        3. CRITICAL: If the symptoms sound like a severe emergency (e.g., chest pain, severe bleeding, stroke), skip the home remedy and strictly advise immediate emergency care.`
+        systemInstruction: `You are MediSync AI, an intelligent emergency routing assistant. 
+        The user is in ${location || 'Indore'}.
+        Here is the REAL-TIME data of nearby hospitals:
+        ${liveHospitalContext}
+        Analyze the patient's symptoms and reply in 3 short, professional sentences:
+        1. Identify the probable issue and the specialist needed.
+        2. Recommend the BEST hospital from the provided data.
+        3. Give a safe immediate first-aid tip or strictly tell them to call an ambulance if critical.`
       });
+
       const result = await model.generateContent(userMsg);
       const aiText = await result.response.text();
 
@@ -113,7 +135,6 @@ export default function PatientPortal() {
         return updatedChat;
       });
     } catch (error) {
-      console.log("gemini crashed", error)
       setChatMessages(prev => {
         const updatedChat = [...prev];
         updatedChat[updatedChat.length - 1] = { role: 'bot', text: `Connection Error: ${error.message}` };
@@ -122,7 +143,6 @@ export default function PatientPortal() {
     }
   };
 
-  // handle form submit
   const handleAppointmentSubmit = async () => {
     const phoneRegex = /^[0-9]{10}$/;
     const aadhaarRegex = /^[0-9]{12}$/;
@@ -130,8 +150,6 @@ export default function PatientPortal() {
     if (!appointmentForm.name || !appointmentForm.phone || !appointmentForm.aadhaar) return alert("Please fill in all required fields.");
     if (!phoneRegex.test(appointmentForm.phone)) return alert("Invalid Phone! 10 digits required.");
     if (!aadhaarRegex.test(appointmentForm.aadhaar)) return alert("Invalid Aadhaar! 12 digits required.");
-
-    // console.log("submitting data...", appointmentForm)
 
     try {
       const selectedDocData = appointmentForm.selectedDoctor ? appointmentModal.doctors[appointmentForm.selectedDoctor] : null;
@@ -162,27 +180,112 @@ export default function PatientPortal() {
     } catch (error) { console.error("Firebase Error:", error); }
   };
 
+
+  // ==========================================
+  // 🟢 SCREEN 1: ROLE SELECTION (Box 1 of your sketch)
+  // ==========================================
+  if (role === null) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f1e7', color: '#363431', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+        <h1 style={{ fontFamily: 'Instrument Serif', fontSize: 56, marginBottom: 10, color: '#8c7362' }}>MediSync</h1>
+        <p style={{ marginBottom: 40, color: '#7a7671' }}>Select your portal to continue</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, width: '300px' }}>
+          <button onClick={() => setRole('doctor')} style={{ padding: '20px', fontSize: 20, background: '#6d8a70', color: 'white', borderRadius: 16, border: 'none', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(109,138,112,0.3)' }}>
+            👨‍⚕️ Doctor Login
+          </button>
+          
+          <button onClick={handleGoogleLogin} style={{ padding: '20px', fontSize: 20, background: '#8c7362', color: 'white', borderRadius: 16, border: 'none', cursor: 'pointer', fontWeight: 'bold', boxShadow: '0 4px 12px rgba(140,115,98,0.3)' }}>
+            🤕 Patient Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (role === 'doctor') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f1e7', color: '#363431', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+        <h2 style={{ fontFamily: 'Instrument Serif', fontSize: 36, color: '#8c7362', marginBottom: 20 }}>Doctor Dashboard</h2>
+        <p style={{ color: '#7a7671' }}>Navigating to secure admin portal...</p>
+        <button onClick={() => setRole(null)} style={{ marginTop: 20, padding: '10px 20px', background: 'transparent', border: '1px solid #8c7362', color: '#8c7362', borderRadius: 8, cursor: 'pointer' }}>← Go Back</button>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 🟢 SCREEN 2: PATIENT LOCATION (Box 2 of your sketch)
+  // ==========================================
+  if (role === 'patient' && !isLoggedIn) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f1e7', color: '#363431', fontFamily: 'IBM Plex Sans, sans-serif' }}>
+        <div style={{ background: '#ffffff', padding: '40px', borderRadius: 24, boxShadow: '0 10px 30px rgba(0,0,0,0.05)', border: '1px solid #e8e3d8', textAlign: 'center', width: '90%', maxWidth: '400px' }}>
+          
+          {auth.currentUser && <p style={{fontWeight: 'bold', color: '#6d8a70', marginBottom: 10}}>Welcome, {auth.currentUser.displayName || auth.currentUser.email}</p>}
+          
+          <h2 style={{ fontFamily: 'Instrument Serif', fontSize: 36, marginBottom: 8, color: '#363431' }}>Your Location</h2>
+          <p style={{ color: '#7a7671', marginBottom: 24, fontSize: 14 }}>Enter your city to find nearby hospitals</p>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <input 
+              type="text" 
+              placeholder="e.g., Indore, Bhopal" 
+              value={patientCity}
+              onChange={(e) => setPatientCity(e.target.value)}
+              onKeyDown={(e) => {
+                if(e.key === 'Enter' && patientCity.trim() !== '') {
+                  setLocation(patientCity);
+                  setLocationSet(true);
+                  setIsLoggedIn(true);
+                }
+              }}
+              style={{ padding: '16px', borderRadius: 12, background: '#f5f1e7', color: '#363431', border: '1px solid #e8e3d8', fontSize: 16, outline: 'none' }}
+            />
+            <button 
+              onClick={() => {
+                if (patientCity.trim() !== '') {
+                  setLocation(patientCity); 
+                  setLocationSet(true);     
+                  setIsLoggedIn(true);      
+                } else {
+                  alert("Please enter a city!");
+                }
+              }}
+              style={{ padding: '16px', background: '#d49679', color: 'white', borderRadius: 12, border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: 16, boxShadow: '0 4px 12px rgba(212,150,121,0.3)' }}>
+              Find Hospitals →
+            </button>
+            <button onClick={handleLogout} style={{ marginTop: 8, padding: '10px', background: 'transparent', color: '#a39f9a', border: 'none', cursor: 'pointer', fontSize: 14 }}>
+              ← Cancel & Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================
+  // 🟢 SCREEN 3: DASHBOARD TABS (Box 3 of your sketch)
+  // ==========================================
   return (
     <div style={{ 
-      '--bg-base': '#f5f1e7', // beige background
-      '--bg-surface': '#ffffff', // white cards
-      '--border-soft': '#e8e3d8', // light borders
-      '--cool': '#8c7362', // warm brownish accent
-      '--sage': '#6d8a70', // muted green
-      '--warm': '#d49679', // soft terra cotta
+      '--bg-base': '#f5f1e7', 
+      '--bg-surface': '#ffffff', 
+      '--border-soft': '#e8e3d8', 
+      '--cool': '#8c7362', 
+      '--sage': '#6d8a70', 
+      '--warm': '#d49679', 
       '--clay': '#c26d6d',
       '--text-muted': '#7a7671',
       '--text-faint': '#a39f9a',
       minHeight: '100vh', 
       background: 'var(--bg-base)', 
-      color: '#363431', // dark text instead of white
+      color: '#363431', 
       fontFamily: 'IBM Plex Sans, sans-serif' 
     }}>
       
       {/* nav */}
       <div style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-soft)', padding: '0 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 40 }}>
-          <div style={{ fontFamily: 'Instrument Serif', fontSize: 26, color: 'var(--cool)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => navigate('/')}>MediSync</div>
+          <div style={{ fontFamily: 'Instrument Serif', fontSize: 26, color: 'var(--cool)', cursor: 'pointer', fontWeight: 'bold' }} onClick={handleLogout}>MediSync</div>
           <div style={{ display: 'flex', gap: 12 }}>
             {tabs.map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ padding: '8px 18px', background: activeTab === tab.id ? 'rgba(140, 115, 98, 0.1)' : 'transparent', border: 'none', borderRadius: 10, cursor: 'pointer', color: activeTab === tab.id ? 'var(--cool)' : 'var(--text-muted)', fontSize: 14, fontWeight: activeTab === tab.id ? 600 : 400, transition: '0.2s' }}>
@@ -193,7 +296,7 @@ export default function PatientPortal() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
           <div style={{ fontSize: 12, color: 'var(--sage)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 8, height: 8, background: 'var(--sage)', borderRadius: '50%' }}></span> Logged In
+            <span style={{ width: 8, height: 8, background: 'var(--sage)', borderRadius: '50%' }}></span> {auth.currentUser?.email || 'Logged In'}
           </div>
           <button onClick={() => navigate('/patient-dashboard')} style={{ padding: '10px 20px', background: 'var(--cool)', border: 'none', borderRadius: 10, color: 'white', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>View Tokens</button>
         </div>
@@ -243,7 +346,7 @@ export default function PatientPortal() {
                     <h2 style={{ fontSize: 32, marginBottom: 8, fontFamily: 'Instrument Serif' }}>Hospitals near {location}</h2>
                     <p style={{ fontSize: 14, color: 'var(--sage)' }}>Showing real-time resource availability</p>
                   </div>
-                  <button onClick={() => { setLocationSet(false); setLocation(''); }} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>Change Location</button>
+                  <button onClick={() => { setLocationSet(false); setLocation(''); setIsLoggedIn(false); setPatientCity(''); }} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 12, color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>Change Location</button>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: 24 }}>
@@ -290,25 +393,43 @@ export default function PatientPortal() {
           </div>
         )}
 
-        {/* chatbot tab */}
+        {/* 🤖 AI ASSISTANT TAB */}
         {activeTab === 'chatbot' && (
           <div style={{ maxWidth: 700, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 32 }}>
               <h2 style={{ fontSize: 32, fontFamily: 'Instrument Serif', marginBottom: 8 }}>AI Symptom Assistant</h2>
               <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Describe how you feel, and our AI will direct you to the right specialist.</p>
             </div>
-            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', borderRadius: 24, padding: 30, height: 450, overflowY: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 16, boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-              {chatMessages.map((msg, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{ maxWidth: '75%', padding: '14px 20px', background: msg.role === 'user' ? 'var(--cool)' : 'var(--bg-base)', color: msg.role === 'user' ? 'white' : '#363431', borderRadius: 18, borderBottomRightRadius: msg.role === 'user' ? 4 : 18, borderBottomLeftRadius: msg.role === 'bot' ? 4 : 18, fontSize: 14, lineHeight: 1.5, border: msg.role === 'bot' ? '1px solid var(--border-soft)' : 'none' }}>
-                    {msg.text}
+            
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-soft)', borderRadius: 24, padding: 30, height: 450, overflowY: 'auto', marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {chatMessages.map((msg, i) => {
+                const mentionedHospital = msg.role === 'bot' 
+                  ? hospitals.find(h => msg.text.toLowerCase().includes(h.name.toLowerCase())) 
+                  : null;
+
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start', marginBottom: 12 }}>
+                    <div style={{ maxWidth: '75%', padding: '14px 20px', background: msg.role === 'user' ? 'var(--cool)' : 'var(--bg-base)', borderRadius: 18, borderBottomRightRadius: msg.role === 'user' ? 4 : 18, borderBottomLeftRadius: msg.role === 'bot' ? 4 : 18, fontSize: 14, lineHeight: 1.5, border: msg.role === 'bot' ? '1px solid var(--border-soft)' : 'none', color: msg.role === 'user' ? 'white' : '#363431' }}>
+                      {msg.text}
+                    </div>
+                    
+                    {mentionedHospital && (
+                      <button 
+                        onClick={() => setAppointmentModal(mentionedHospital)}
+                        style={{ marginTop: 8, padding: '10px 18px', background: 'var(--warm)', color: 'white', border: 'none', borderRadius: 12, fontWeight: 700, cursor: 'pointer', fontSize: 13, boxShadow: '0 4px 12px rgba(212, 132, 90, 0.2)' }}
+                      >
+                        📅 Book Token at {mentionedHospital.name} →
+                      </button>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
+              <div ref={chatEndRef} />
             </div>
+
             <div style={{ display: 'flex', gap: 12, background: 'var(--bg-surface)', padding: 12, borderRadius: 18, border: '1px solid var(--border-soft)' }}>
               <input value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleChat()} placeholder="e.g. I have a sharp pain in my lower back..." style={{ flex: 1, padding: '14px', background: 'transparent', border: 'none', color: '#363431', fontSize: 15, outline: 'none' }} />
-              <button onClick={handleChat} style={{ padding: '0 24px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Send</button>
+              <button onClick={handleChat} style={{ padding: '0 24px', background: 'var(--cool)', border: 'none', borderRadius: 12, color: '#fff', fontWeight: 600, cursor: 'pointer' }}>Send →</button>
             </div>
           </div>
         )}
@@ -339,7 +460,9 @@ export default function PatientPortal() {
         )}
       </div>
 
-      {/* deep details modal */}
+      {/* ==========================================
+          🟢 SCREEN 4: HOSPITAL DETAILS & MAP (Box 4 of sketch) 
+          ========================================== */}
       {selectedHospital && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(50, 45, 40, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20 }}>
           <div style={{ background: 'var(--bg-surface)', width: '100%', maxWidth: 850, borderRadius: 24, border: '1px solid var(--border-soft)', maxHeight: '90vh', overflowY: 'auto', padding: 40, boxShadow: '0 20px 40px rgba(0,0,0,0.1)' }}>
@@ -347,6 +470,16 @@ export default function PatientPortal() {
               <div>
                 <h2 style={{ fontSize: 36, fontFamily: 'Instrument Serif', margin: 0 }}>{selectedHospital.name}</h2>
                 <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>{selectedHospital.location} • Real-Time Resources</p>
+                
+                {/* 🗺️ THE MAP BUTTON FROM YOUR SKETCH */}
+                <a 
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedHospital.name + ' ' + selectedHospital.location)}`} 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  style={{ display: 'inline-block', marginTop: 12, padding: '8px 16px', background: 'rgba(140, 115, 98, 0.1)', color: 'var(--cool)', borderRadius: 8, textDecoration: 'none', fontSize: 14, fontWeight: 'bold', border: '1px solid rgba(140, 115, 98, 0.3)' }}
+                >
+                  📍 View on Google Maps
+                </a>
               </div>
               <button onClick={() => setSelectedHospital(null)} style={{ background: 'none', border: 'none', color: '#363431', fontSize: 24, cursor: 'pointer' }}>✕</button>
             </div>

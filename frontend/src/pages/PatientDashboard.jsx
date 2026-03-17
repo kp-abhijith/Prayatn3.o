@@ -14,7 +14,7 @@ export default function PatientDashboard() {
   const [myAppointments, setMyAppointments] = useState([]);
   const [hospitalQueues, setHospitalQueues] = useState({});
 
-  // check auth
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, currentUser => {
       setUser(currentUser);
