@@ -1,7 +1,4 @@
 // App.jsx — routing only, nothing else lives here
-// three routes, three pages, that's it
-// Day 2: wrap /dashboard in a ProtectedRoute that checks Firebase Auth
-
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import LoginPage       from './pages/LoginPage'
 import DoctorDashboard from './pages/DoctorDashboard'
@@ -14,8 +11,10 @@ export default function App() {
       <Routes>
         <Route path="/"                 element={<LoginPage />} />
         <Route path="/dashboard"        element={<DoctorDashboard />} />
+        
+        {/* 🟢 TERA NAYA DOCTOR ROUTE */}
         <Route path="/doctor-dashboard" element={<DoctorDashboard />} /> 
-// (Make sure tune DoctorDashboard ko upar import kiya ho)
+
         {/* The Booking Page */}
         <Route path="/patient"          element={<PatientPortal />} /> 
         
