@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase'
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 
 export default function PatientPortal() {
   const navigate = useNavigate();
+  const routerLocation = useLocation();
   const chatEndRef = useRef(null);
   
   const [role, setRole] = useState(null); 
@@ -49,6 +50,21 @@ export default function PatientPortal() {
   const [location, setLocation] = useState('Indore') 
   const [locationSet, setLocationSet] = useState(false) 
   const [selectedHospital, setSelectedHospital] = useState(null)
+
+  // Pre-fill location when navigating from dashboard
+  useEffect(() => {
+    if (auth.currentUser && routerLocation.state?.location) {
+      setLocation(routerLocation.state.location);
+      setLocationSet(true);
+      setIsLoggedIn(true);
+    }
+  }, [routerLocation.state]);
+
+  useEffect(() => {
+    if (routerLocation.state?.tab) {
+      setActiveTab(routerLocation.state.tab);
+    }
+  }, [routerLocation.state?.tab]);
   const [chatMessages, setChatMessages] = useState([
     { role: 'bot', text: "Hi! I'm MediSync AI. Describe your symptoms and I'll suggest which specialist and hospital to visit." }
   ])

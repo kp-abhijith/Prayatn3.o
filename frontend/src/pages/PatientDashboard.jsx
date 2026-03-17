@@ -10,6 +10,10 @@ export default function PatientDashboard() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
+
+  const [location, setLocation] = useState('');
+  const [locationSet, setLocationSet] = useState(false);
+
   const [peopleAhead, setPeopleAhead] = useState(0);
   const [myAppointments, setMyAppointments] = useState([]);
   const [hospitalQueues, setHospitalQueues] = useState({});
@@ -148,6 +152,53 @@ export default function PatientDashboard() {
     );
   }
 
+  // location step (sketch Box 2)
+  if (!locationSet) {
+    return (
+      <div style={{ 
+        '--bg-base': '#f5f1e7', 
+        '--bg-surface': '#ffffff', 
+        '--border-soft': '#e8e3d8', 
+        '--cool': '#8c7362', 
+        '--sage': '#6d8a70', 
+        '--warm': '#d49679', 
+        '--text-muted': '#7a7671',
+        minHeight: '100vh', background: 'var(--bg-base)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, fontFamily: 'IBM Plex Sans, sans-serif' 
+      }}>
+        <div style={{ background: 'var(--bg-surface)', padding: 40, borderRadius: 16, width: '100%', maxWidth: 450, border: '1px solid var(--border-soft)', boxShadow: '0 10px 30px rgba(0,0,0,0.05)' }}>
+          <h2 style={{ fontSize: 32, fontFamily: 'Instrument Serif', marginBottom: 10, textAlign: 'center', color: '#363431' }}>Where are you?</h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: 14, textAlign: 'center', marginBottom: 24 }}>Enter your city to find nearby hospitals and book a token.</p>
+          <input 
+            value={location} 
+            onChange={e => setLocation(e.target.value)} 
+            placeholder="e.g., Indore, Bhopal" 
+            onKeyDown={e => {
+              if (e.key === 'Enter' && location.trim() !== '') {
+                setLocationSet(true);
+              }
+            }}
+            style={{ width: '100%', padding: 14, borderRadius: 12, border: '1px solid var(--border-soft)', background: 'var(--bg-base)', fontSize: 15, color: '#363431', outline: 'none', marginBottom: 20 }}
+          />
+          <button 
+            onClick={() => {
+              if (location.trim() !== '') {
+                setLocationSet(true);
+              } else {
+                alert('Please enter a city!');
+              }
+            }}
+            style={{ width: '100%', padding: 14, background: 'var(--cool)', border: 'none', borderRadius: 12, color: 'white', cursor: 'pointer', fontWeight: 600, fontSize: 15 }}
+          >
+            Continue
+          </button>
+          <button onClick={handleLogout} style={{ marginTop: 16, width: '100%', padding: 12, background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--border-soft)', borderRadius: 12, cursor: 'pointer', fontSize: 14 }}>
+            ← Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // live token dashboard
   return (
     <div style={{ 
@@ -164,13 +215,16 @@ export default function PatientDashboard() {
     }}>
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
         
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 style={{ fontSize: 32, fontFamily: 'Instrument Serif', marginBottom: 4 }}>My Dashboard</h1>
             <p style={{ color: 'var(--text-muted)', fontSize: 14 }}>Logged in as: {user.email}</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>Location: <strong>{location || 'Not set'}</strong></p>
           </div>
-         <div style={{ display: 'flex', gap: 12 }}>
-            <button onClick={() => navigate('/patient')} style={{ padding: '8px 16px', background: 'var(--cool)', border: 'none', borderRadius: 8, color: 'white', cursor: 'pointer', fontWeight: 600 }}>+ Book Appointment</button>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button onClick={() => navigate('/patient', { state: { location } })} style={{ padding: '8px 16px', background: 'var(--cool)', border: 'none', borderRadius: 8, color: 'white', cursor: 'pointer', fontWeight: 600 }}>+ Book Appointment</button>
+            <button onClick={() => navigate('/patient', { state: { location, tab: 'chatbot' } })} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 8, color: '#363431', cursor: 'pointer' }}>AI Assistant</button>
+            <button onClick={() => navigate('/patient', { state: { location, tab: 'blood' } })} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 8, color: '#363431', cursor: 'pointer' }}>Blood Finder</button>
             <button onClick={handleLogout} style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border-soft)', borderRadius: 8, color: '#363431', cursor: 'pointer' }}>Sign Out</button>
           </div> 
         </div>
