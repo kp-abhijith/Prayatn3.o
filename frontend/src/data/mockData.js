@@ -5,8 +5,8 @@
 export const HOSPITALS = [
   {
     id: 1,
-    name: "AIIMS Delhi",
-    location: "New Delhi",
+    name: "Medanta Indore",
+    location: "vijay Nagar",
     status: "critical",
 
     // ICU nearly full — triggers red status
@@ -42,8 +42,8 @@ export const HOSPITALS = [
 
   {
     id: 2,
-    name: "Fortis Hospital",
-    location: "Gurugram",
+    name: "MY Hospital",
+    location: "Regal Square",
     status: "normal",
 
     icuBeds:     { total: 25,  available: 14 },
@@ -78,8 +78,8 @@ export const HOSPITALS = [
 
   {
     id: 3,
-    name: "Apollo Hospital",
-    location: "Noida",
+    name: "Choithram Hospital",
+    location: "MANIK Bagh",
     status: "normal",
 
     icuBeds:     { total: 35,  available: 22 },

@@ -110,7 +110,7 @@ export default function PatientPortal() {
     setChatMessages(prev => [...prev, { role: 'bot', text: 'Analyzing symptoms and finding the best equipped hospital near you...' }]);
 
     try {
-      const apiKey = "AIzaSyDFcUL2_bX0VSXbjs9KvLZn0b9sH19mmzs"; 
+      const apiKey = "AIzaSyB7wY9uBKV-LF6F9E1Rp3VAZBXfC3azQxQ"; 
       const genAI = new GoogleGenerativeAI(apiKey);
       
       const liveHospitalContext = hospitalsWithDistance.map(h => {
@@ -121,14 +121,15 @@ export default function PatientPortal() {
 
       const model = genAI.getGenerativeModel({ 
         model: "gemini-2.5-flash",
-        systemInstruction: `You are MediSync AI, an intelligent emergency routing assistant. 
-        The user is in ${location || 'Indore'}.
+        systemInstruction: `You are MediSync AI, a helpful medical routing assistant. 
+        The user is currently in ${location || 'Indore'}.
         Here is the REAL-TIME data of nearby hospitals:
         ${liveHospitalContext}
-        Analyze the patient's symptoms and reply in 3 short, professional sentences:
-        1. Identify the probable issue and the specialist needed.
-        2. Recommend the BEST hospital from the provided data.
-        3. Give a safe immediate first-aid tip or strictly tell them to call an ambulance if critical.`
+        
+        Analyze the symptoms and reply in 3 short, professional sentences using very simple language:
+        1. Explain the probable issue simply, and YOU MUST explicitly state the proper medical specialist needed (e.g., "You need to see a Cardiologist", "Please consult an Orthopedic", "A Neurologist is required").
+        2. Recommend the BEST nearest hospital from the provided data that has this specialist or available beds.
+        3. Give one safe immediate first-aid tip, or strictly tell them to call an ambulance if it sounds critical.`
       });
 
       const result = await model.generateContent(userMsg);
@@ -140,11 +141,29 @@ export default function PatientPortal() {
         return updatedChat;
       });
     } catch (error) {
-      setChatMessages(prev => {
-        const updatedChat = [...prev];
-        updatedChat[updatedChat.length - 1] = { role: 'bot', text: `Connection Error: ${error.message}` };
-        return updatedChat;
-      });
+      console.error("API Error: ", error); 
+      
+      let mockReply = "Based on your symptoms, you should consult a General Physician for a proper diagnosis.\n\nI recommend visiting the nearest hospital shown on your dashboard.\n\nPlease stay calm, stay hydrated, and proceed to the clinic.";
+      
+      const lowerMsg = userMsg.toLowerCase();
+      if (lowerMsg.includes("heart") || lowerMsg.includes("chest") || lowerMsg.includes("pain")) {
+         mockReply = "It sounds like a serious cardiac issue. You need to see a Cardiologist immediately.\n\nApollo Hospital is nearest and has ICU beds available.\n\nPlease sit down, do not exert yourself, and call an ambulance right away.";
+      } else if (lowerMsg.includes("bone") || lowerMsg.includes("fall") || lowerMsg.includes("leg") || lowerMsg.includes("arm")) {
+         mockReply = "You may have a fracture or severe sprain. You need to see an Orthopedic specialist.\n\nBombay Hospital has orthopedic doctors on duty right now.\n\nKeep the injured area completely still and do not put weight on it.";
+      } else if (lowerMsg.includes("head") || lowerMsg.includes("dizzy") || lowerMsg.includes("fever")) {
+         mockReply = "This could be a viral infection or severe migraine. You need to see a General Medicine specialist or Neurologist.\n\nChoithram Hospital is your best option nearby.\n\nPlease lie down in a dark room and drink plenty of fluids.";
+      }
+
+      setTimeout(() => {
+        setChatMessages(prev => {
+          const updatedChat = [...prev];
+          updatedChat[updatedChat.length - 1] = { 
+            role: 'bot', 
+            text: `⚠️ System Alert: Unable to reach AI servers. Using offline fallback protocol...\n\n${mockReply}` 
+          };
+          return updatedChat;
+        });
+      }, 1500); 
     }
   };
 
