@@ -18,12 +18,13 @@ export default function PatientPortal() {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
         setRole('patient'); 
+        setIsLoggedIn(true);
       } else {
-        navigate('/'); 
+        setRole('patient');
       }
     });
     return () => unsubscribe();
-  }, [navigate]);
+  }, []);
 
   const handleLogout = async () => {
     await signOut(auth);
@@ -110,7 +111,7 @@ export default function PatientPortal() {
     setChatMessages(prev => [...prev, { role: 'bot', text: 'Analyzing symptoms and finding the best equipped hospital near you...' }]);
 
     try {
-      const apiKey = "AIzaSyB7wY9uBKV-LF6F9E1Rp3VAZBXfC3azQxQ"; 
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       const genAI = new GoogleGenerativeAI(apiKey);
       
       const liveHospitalContext = hospitalsWithDistance.map(h => {
@@ -190,7 +191,7 @@ export default function PatientPortal() {
         symptoms: appointmentForm.symptoms || "No symptoms provided",
         fee: feeToCharge,
         status: "pending",
-        patientUid: auth.currentUser ? auth.currentUser.uid : "guest",
+        patientUid: auth.currentUser.uid,
         tokenNumber: `TKN-${Math.floor(Math.random() * 900) + 100}`,
         createdAt: serverTimestamp()
       });
@@ -448,7 +449,7 @@ export default function PatientPortal() {
                 <h2 style={{ fontSize: 36, fontFamily: 'Instrument Serif', margin: 0, color: 'var(--text-main)', fontWeight: 'bold' }}>{selectedHospital.name}</h2>
                 <p style={{ color: 'var(--text-muted)', marginTop: 8, fontWeight: '500' }}>{selectedHospital.location} • Real-Time Resources</p>
                 <a 
-                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedHospital.name + ' ' + selectedHospital.location)}`} 
+                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedHospital.name + ' ' + selectedHospital.location)}`}
                   target="_blank" 
                   rel="noreferrer" 
                   style={{ display: 'inline-block', marginTop: 12, padding: '8px 16px', background: 'rgba(13, 95, 13, 0.1)', color: 'var(--cool)', borderRadius: 8, textDecoration: 'none', fontSize: 14, fontWeight: 'bold', border: '1px solid rgba(13, 95, 13, 0.2)' }}

@@ -1,20 +1,18 @@
-import { initializeApp } from 'firebase/app'
-import { getAuth } from 'firebase/auth'
-import { getFirestore } from 'firebase/firestore'
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
+// Secure config reading from .env file
 const firebaseConfig = {
-  apiKey: "AIzaSyDKrvMrtwkFjJ2IKPwUsYoujB3WtjNpGg8",
-  authDomain: "medisync-app-8af36.firebaseapp.com",
-  projectId: "medisync-app-8af36",
-  storageBucket: "medisync-app-8af36.firebasestorage.app",
-  messagingSenderId: "273577841142",
-  appId: "1:273577841142:web:d1067a17a312a2b68837d7",
-  measurementId: "G-0CJ199262S"
-}
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
+};
+console.log("FIREBASE KEY CHECK:", import.meta.env.VITE_FIREBASE_API_KEY);
 
-// initialize Firebase
-const app = initializeApp(firebaseConfig)
-
-// these are what we import in other files
-export const auth = getAuth(app)
-export const db = getFirestore(app)
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
